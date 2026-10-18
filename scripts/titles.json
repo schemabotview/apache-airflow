@@ -4,5 +4,6 @@
   "execution": "Apache Airflow Architecture Explained: Scheduler, Executor, Triggerer",
   "scheduling": "Airflow Scheduling Explained: Data Intervals, Logical Date, Catchup",
   "task-design": "Airflow Task Design: XCom, Connections, Templates and External Jobs",
-  "dynamic-work": "Airflow Branching, Trigger Rules and Dynamic Task Mapping"
+  "dynamic-work": "Airflow Branching, Trigger Rules and Dynamic Task Mapping",
+  "idempotency": "Idempotent Airflow Pipelines: Retries, Atomic Publishing, Quality Gates"
 }
