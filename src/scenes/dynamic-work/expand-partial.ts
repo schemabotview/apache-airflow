@@ -21,9 +21,9 @@ total = sum_counts(counts)                 # receives all three results`,
       pattern: 'group',
       cols: 3,
       children: [
-        { id: 'm0', badge: '[0]', label: 'shop-01', sub: '1,204 rows', pattern: 'service', icon: 'box' },
-        { id: 'm1', badge: '[1]', label: 'shop-02', sub: '988 rows', pattern: 'service', icon: 'box' },
-        { id: 'm2', badge: '[2]', label: 'shop-03', sub: '1,530 rows', pattern: 'service', icon: 'box' },
+        { id: 'm0', label: 'shop-01', sub: 'map index 0, 1,204 rows', pattern: 'service', icon: 'box' },
+        { id: 'm1', label: 'shop-02', sub: 'map index 1, 988 rows', pattern: 'service', icon: 'box' },
+        { id: 'm2', label: 'shop-03', sub: 'map index 2, 1,530 rows', pattern: 'service', icon: 'box' },
       ],
     },
     {

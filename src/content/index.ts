@@ -9,6 +9,7 @@ import { assetsCourse } from './assets'
 import { testing } from './testing'
 import { deployment } from './deployment'
 import { observability } from './observability'
+import { integrated } from './integrated'
 import type { Course, Section } from './types'
 
 // Course registry, in syllabus order (APACHE-AIRFLOW-COURSE-PLAN.md, one chapter = one course).
@@ -25,6 +26,7 @@ export const COURSES: Record<string, Course> = {
   [testing.id]: testing,
   [deployment.id]: deployment,
   [observability.id]: observability,
+  [integrated.id]: integrated,
 }
 
 export type { Course, Section }

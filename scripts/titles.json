@@ -10,5 +10,6 @@
   "assets": "Airflow Sensors, Deferrable Operators and Asset Scheduling",
   "testing": "Testing Airflow DAGs: Unit, Integrity and Integration Tests",
   "deployment": "Deploying Airflow: Executors, Pools, Secrets and Access Control",
-  "observability": "Monitoring Airflow: Logs, Metrics, Freshness and Incident Response"
+  "observability": "Monitoring Airflow: Logs, Metrics, Freshness and Incident Response",
+  "integrated": "Airflow Architecture in Practice: Recovery, Upgrades and When to Use It"
 }

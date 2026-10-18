@@ -37,17 +37,95 @@ Routes are `#/<courseId>-<sectionId>`; `#/` is the catalog. Course ids, in sylla
 The recurring example is the daily retail-order pipeline (extract → validate → stage → transform →
 publish). Its nodes come from one shared factory so the same card looks the same in every course.
 
-**Scene inventory** (`src/scenes/`):
+**Scene inventory** (`src/scenes/<course>/`, one scene per section; `shared/pipeline.ts` holds the five
+pipeline task nodes `extract`, `validate`, `stage`, `transform`, `publish`):
 
-| scene | course · section | shape |
-| --- | --- | --- |
-| `shared/pipeline.ts` | every course | the five pipeline task nodes (`extract`, `validate`, `stage`, `transform`, `publish`) |
-| `orders-dag` | first-dag · dependency-graphs | pipeline column beside a rejected cycle |
-| `orchestration-boundary` | first-dag · orchestration-boundaries | Airflow decides → other systems do → what green means |
-| `run-hierarchy` | first-dag · runs-and-attempts | definition → runs → task instances → attempts |
-| `first-taskflow` | first-dag · first-taskflow | the DAG file as a code card → graph + parse/run time |
-| `local-demo` | first-dag · local-demo | terminal card → demo assumptions → what it does not prove |
-| `reading-a-run` | first-dag · reading-a-run | grid table, attempt log, numbered retry side effect |
+| scene | course · section |
+| --- | --- |
+| `orders-dag` | first-dag · dependency-graphs |
+| `orchestration-boundary` | first-dag · orchestration-boundaries |
+| `run-hierarchy` | first-dag · runs-and-attempts |
+| `first-taskflow` | first-dag · first-taskflow |
+| `local-demo` | first-dag · local-demo |
+| `reading-a-run` | first-dag · reading-a-run |
+| `dag-processing` | execution · dag-processing |
+| `scheduler-loop` | execution · scheduler |
+| `executor-options` | execution · executors |
+| `api-server` | execution · api-server |
+| `triggerer-wait` | execution · triggerer |
+| `task-states` | execution · task-states |
+| `three-kinds-of-state` | execution · metadata-vs-data |
+| `run-triggers` | scheduling · run-triggers |
+| `schedule-forms` | scheduling · cron-and-timedelta |
+| `interval-anatomy` | scheduling · data-intervals |
+| `catchup-activation` | scheduling · start-date-catchup |
+| `dst-intervals` | scheduling · timezones |
+| `interval-io` | scheduling · interval-io |
+| `timetable-semantics` | scheduling · timetables |
+| `granularity` | task-design · granularity |
+| `taskflow-operators` | task-design · taskflow-and-operators |
+| `xcom-sizes` | task-design · xcom |
+| `shared-storage` | task-design · shared-storage |
+| `connections` | task-design · providers-and-connections |
+| `params-variables` | task-design · variables-and-params |
+| `templating` | task-design · templating |
+| `external-job` | task-design · external-jobs |
+| `explicit-inferred` | dynamic-work · explicit-and-inferred |
+| `branching` | dynamic-work · branching |
+| `trigger-rules` | dynamic-work · trigger-rules |
+| `task-groups` | dynamic-work · task-groups |
+| `parse-vs-runtime` | dynamic-work · parse-vs-runtime |
+| `expand-partial` | dynamic-work · expand-partial |
+| `mapping-limits` | dynamic-work · mapping-limits |
+| `retry-policy` | idempotency · retries-and-timeouts |
+| `append-vs-replace` | idempotency · idempotent-tasks |
+| `atomic-publish` | idempotency · atomic-publication |
+| `side-effects` | idempotency · duplicate-side-effects |
+| `concurrent-runs` | idempotency · concurrent-runs |
+| `quality-gate` | idempotency · quality-gates |
+| `callbacks` | idempotency · callbacks |
+| `recovery-mechanisms` | backfills · recovery-mechanisms |
+| `affected-intervals` | backfills · affected-intervals |
+| `backfill-create` | backfills · backfill-policy |
+| `backfill-capacity` | backfills · backfill-capacity |
+| `clearing-scope` | backfills · clearing-scope |
+| `replay-changes` | backfills · replay-changes |
+| `staged-repair` | backfills · staged-repair |
+| `sensor-limits` | assets · sensors |
+| `slot-occupancy` | assets · poke-and-reschedule |
+| `deferral` | assets · deferrable |
+| `asset-flow` | assets · assets |
+| `asset-conditions` | assets · asset-conditions |
+| `cross-dag` | assets · cross-dag |
+| `event-driven` | assets · event-driven |
+| `logic-split` | testing · separate-logic |
+| `dag-integrity` | testing · dag-integrity |
+| `unit-tests` | testing · unit-tests |
+| `local-execution` | testing · local-execution |
+| `integration-cases` | testing · integration-cases |
+| `packaging` | testing · packaging |
+| `promotion` | testing · promotion-and-versions |
+| `execution-models` | deployment · execution-models |
+| `executor-choice` | deployment · executor-choice |
+| `shared-infrastructure` | deployment · shared-infrastructure |
+| `pools-concurrency` | deployment · pools-and-concurrency |
+| `throughput` | deployment · throughput |
+| `secrets` | deployment · secrets |
+| `trust-boundaries` | deployment · access-and-trust |
+| `managed-or-self` | deployment · managed-or-self |
+| `task-logs` | observability · task-logs |
+| `remote-logs` | observability · remote-logs |
+| `health-vs-progress` | observability · health-vs-progress |
+| `metrics` | observability · metrics |
+| `freshness` | observability · freshness-alerts |
+| `diagnosis` | observability · diagnosis |
+| `incident` | observability · incident-response |
+| `end-to-end` | integrated · end-to-end |
+| `coordinating-engines` | integrated · coordinating-engines |
+| `dag-boundaries` | integrated · dag-boundaries |
+| `outage-planning` | integrated · outage-planning |
+| `upgrades` | integrated · upgrades |
+| `when-airflow-fits` | integrated · when-airflow-fits |
 
 The shell's catalog throws on an empty course registry, so a repo can never sit at zero courses.
 
@@ -126,6 +204,14 @@ Engine behaviours the pilot hit (flow 1.3.0):
 - Two opposed edges between the same pair route the return edge **through both cards' labels**.
   Use one edge with `bidirectional: true`.
 - `dir:` on a scene edge does not move its target; to stack two boards, nest them in one container.
+- **`badge` renders only on container headers.** On a leaf card it is ignored, so a leaf badge must
+  never carry content (a time, a map index): put that in the `sub`. Grid order carries sequence.
+- A **3-column card row under a table** is wider than the table, sets the board width, and shrinks the
+  table's type. Stack those cards (`cols: 1` or `2`) so the table sets the width.
+- An **`LR` chain of 4+ cards** makes a thin board with low area; prefer `TB`, or a `cols: 2` grid.
+- `padding: 0.04` helps wide boards; on a tall (height-bound) board it pushes nodes under the
+  eyebrow, which `density` reports as HIT. Leave tall boards at the default padding.
+- First drafts consistently rendered at 0.70–0.78: write slides with two ### blocks of 4–5 bullets.
 
 ## Guards before handing over
 

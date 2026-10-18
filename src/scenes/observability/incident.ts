@@ -12,12 +12,12 @@ export const incident: Scene = {
       pattern: 'group',
       cols: 2,
       children: [
-        { id: 'detect', badge: '06:00', label: 'Detect', sub: 'freshness check fails', pattern: 'warn', icon: 'bell' },
-        { id: 'triage', badge: '06:10', label: 'Triage', sub: 'impact, owner, scope', pattern: 'service', icon: 'search' },
-        { id: 'contain', badge: '06:20', label: 'Contain', sub: 'pause the consumer', pattern: 'service', icon: 'lock' },
-        { id: 'repair', badge: '07:30', label: 'Repair', sub: 'clear, narrow scope', pattern: 'service', icon: 'wrench' },
-        { id: 'verify', badge: '08:15', label: 'Verify', sub: 'reconcile the data', pattern: 'storage', icon: 'shieldcheck' },
-        { id: 'learn', badge: 'later', label: 'Write up', sub: 'cause and prevention', pattern: 'external', icon: 'pencil' },
+        { id: 'detect', label: 'Detect', sub: '06:00 · freshness check fails', pattern: 'warn', icon: 'bell' },
+        { id: 'triage', label: 'Triage', sub: '06:10 · impact, owner, scope', pattern: 'service', icon: 'search' },
+        { id: 'contain', label: 'Contain', sub: '06:20 · pause the consumer', pattern: 'service', icon: 'lock' },
+        { id: 'repair', label: 'Repair', sub: '07:30 · clear, narrow scope', pattern: 'service', icon: 'wrench' },
+        { id: 'verify', label: 'Verify', sub: '08:15 · reconcile the data', pattern: 'storage', icon: 'shieldcheck' },
+        { id: 'learn', label: 'Write up', sub: 'later: cause, prevention', pattern: 'external', icon: 'pencil' },
       ],
     },
     {

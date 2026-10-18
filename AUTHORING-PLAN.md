@@ -103,8 +103,9 @@ a screenshot of each route reviewed by eye (edge labels over cards are not measu
    PASS  0.90  0.89  0.57  clear  first-dag-local-demo
    PASS  0.84  0.89  0.71  clear  first-dag-reading-a-run
    ```
-2. **Courses 2–12, one per change**, in syllabus order (each depends on the vocabulary of the last).
-   Each lands with its scenes, slides, narration, `titles.json` entry, density report and route list.
+2. **Courses 2–12, one per change. Done.** All 84 sections are authored, one commit per course, each
+   with scenes, slides, narration and a `titles.json` entry. `npm run density` passes all 84 frames,
+   and every course's frames were reviewed by eye on a contact sheet.
 3. **Audio** — one Colab + Chatterbox pass per finished course; after that `check` requires every wav
    in that course.
 4. **Deploy** — enable Pages, add the `catalog.json` listing in `ui-graphl`.
@@ -115,6 +116,10 @@ a screenshot of each route reviewed by eye (edge labels over cards are not measu
   catalog already uses blue for a neighbour.
 - **Course ids** in `CLAUDE.md` — they become public URLs, so they should be settled before the pilot.
 - **Airflow patch** to name on code cards (3.1.x family is fixed; a single patch is not yet verified).
+- **first-dag's code and Airflow 3's default timetable.** Chapter 1 shows `schedule="@daily"` with
+  `ds`. Under Airflow 3's default trigger timetable that `ds` is the day the run fires, which chapter 3
+  explains and fixes with `CronDataIntervalTimetable`. Chapter 1 does not mention it. Either leave it
+  as the deliberate set-up chapter 3 resolves, or switch chapter 1 to the explicit timetable.
 - **Verify against that patch before recording:** `extract_orders(ds=None)` picks the file from the
   run's date. Airflow 3 allows runs with no logical date, and a manual trigger may create one, in
   which case `ds` is absent and the path would read `None`. Chapter 3 is where that belongs; the
