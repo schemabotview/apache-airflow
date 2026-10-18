@@ -1,10 +1,12 @@
 import { firstDag } from './first-dag'
+import { execution } from './execution'
 import type { Course, Section } from './types'
 
 // Course registry, in syllabus order (APACHE-AIRFLOW-COURSE-PLAN.md, one chapter = one course).
 // Courses are added here as each is authored.
 export const COURSES: Record<string, Course> = {
   [firstDag.id]: firstDag,
+  [execution.id]: execution,
 }
 
 export type { Course, Section }

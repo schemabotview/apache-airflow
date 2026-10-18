@@ -60,7 +60,12 @@ const LI_W_OL = TEXT_W - 73
 const BODY_LH = FS * 1.45
 const H2_H = FS * 1.73 * 1.15
 const H3_H = FS * 1.2 * 1.2
-const CPX = 12.4 // px per character at 26px IBM Plex Sans (measured off a rendered slide)
+// 12.0 in this repo, from the template's 12.4. Measured against 13 rendered slides (apache-airflow,
+// shell 0.8 / flow 1.3, `npm run density`): at 12.4 the model ran 0.6–25 % HIGH on every slide, which
+// left real 0.80–0.85 slides failing the 1000 cap. At 12.0 model ÷ rendered is 0.985–1.125, so a slide
+// passing at 1000 renders at ≤ ~1015px — still under the 0.95 density ceiling (1026). Re-measure if
+// the shell's slide type changes.
+const CPX = 12.0 // px per character at 26px IBM Plex Sans (measured off rendered slides)
 
 /** Wrapped line count for one markdown block at the given column width. */
 function textLines(text, widthPx) {
