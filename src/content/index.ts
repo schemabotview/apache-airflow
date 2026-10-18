@@ -1,5 +1,6 @@
 import { firstDag } from './first-dag'
 import { execution } from './execution'
+import { scheduling } from './scheduling'
 import type { Course, Section } from './types'
 
 // Course registry, in syllabus order (APACHE-AIRFLOW-COURSE-PLAN.md, one chapter = one course).
@@ -7,6 +8,7 @@ import type { Course, Section } from './types'
 export const COURSES: Record<string, Course> = {
   [firstDag.id]: firstDag,
   [execution.id]: execution,
+  [scheduling.id]: scheduling,
 }
 
 export type { Course, Section }
