@@ -1,0 +1,10 @@
+/* This repo's whole design surface — the three tokens @graphlearning/shell leaves to the repo.
+   Imported AFTER the shell's stylesheet in main.tsx, so these win the cascade.
+
+   Airflow's own palette: the logo blue as --brand (the catalog card and the thumbnail gradient use
+   the same anchor), a lighter tint for hover, and the logo's teal blade as the counter tone. */
+:root {
+  --brand: #017cee; /* the subject's identity colour */
+  --brand-hover: #4da3f3; /* a lighter tint — the eyebrow's hover state */
+  --accent-2: #00c7d4; /* the counter tone — the slide's `###` subheading */
+}
