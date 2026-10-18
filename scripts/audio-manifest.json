@@ -1,0 +1,509 @@
+{
+  "count": 84,
+  "entries": [
+    {
+      "course": "first-dag",
+      "section": "dependency-graphs",
+      "file": "first-dag/dependency-graphs.wav",
+      "narration": "Start with the shape before any code. A pipeline is a set of tasks, and each dependency between them is a promise: this task may only start once that one has succeeded. Draw the tasks as nodes and the dependencies as arrows, and you have a directed graph. In our running example, the daily retail-order pipeline extracts the day's orders, validates them, stages them, builds the sales tables and publishes a summary. Validation sits in the middle for a reason. If it fails, nothing downstream starts, so a bad file never reaches the published summary. Now look at the lower panel. Refreshing prices needs the summary, and the summary needs the prices. There is no task that can go first, so Airflow refuses that graph when it parses the file. That is the acyclic part of the name. If you want work to repeat, you do not draw a loop. You run the same graph again, and the next sections are about exactly what a run is."
+    },
+    {
+      "course": "first-dag",
+      "section": "orchestration-boundaries",
+      "file": "first-dag/orchestration-boundaries.wav",
+      "narration": "It helps to be precise about what Airflow is for, because most early design mistakes come from asking it to be something else. Airflow is an orchestrator. It decides when a bounded piece of work should run, in what order relative to the rest of the graph, what to retry when it fails, and it keeps a record of what happened. What it usually does not do is the heavy work itself. The warehouse runs the SQL, dbt builds the models, Spark crunches the large joins. A stream processor such as Flink handles events that never stop arriving, and a web API answers a user in milliseconds. Airflow sits above those systems. A typical task submits a job, waits for it, and records the outcome. That has a consequence worth holding onto from the start: when Airflow marks a task green, it is telling you the task finished, not that the data it produced is correct. Next, we name the pieces Airflow actually tracks."
+    },
+    {
+      "course": "first-dag",
+      "section": "runs-and-attempts",
+      "file": "first-dag/runs-and-attempts.wav",
+      "narration": "Airflow tracks four different things, and its screens and logs only make sense once you keep them apart. The DAG definition is the Python file. It says which tasks exist and how they connect, and it does nothing on its own. A DAG run is one execution of that graph, usually tied to one data interval, so the run for the first of March and the run for the second of March are separate objects with separate outcomes. Inside a run, each task becomes a task instance: validate orders in the March second run is one task instance, with its own state. And a task instance can be tried more than once. Here, the first attempt found no orders and failed, so Airflow scheduled a second attempt after a delay. A retry adds an attempt to the same task instance. It does not rerun extraction, and it does not create a new run. Logs and durations belong to attempts. Now let's write the definition itself."
+    },
+    {
+      "course": "first-dag",
+      "section": "first-taskflow",
+      "file": "first-dag/first-taskflow.wav",
+      "narration": "Here is the whole first pipeline, written with the TaskFlow style from the Airflow S D K. The dag decorator turns the outer function into a DAG definition, and its arguments set the schedule: daily, starting on the first of March twenty twenty-six, in UTC, without catching up on past days. Inside, each function marked with the task decorator becomes a task. Extract orders returns the path of the day's file, chosen from the run's date. Validate orders counts the rows and raises an error when there are none, which fails the task and stops publication. Publish summary writes the result. Look at the last line of the function. Calling publish with the output of validate, which takes the output of extract, is what declares the dependencies, and on the right you can see the graph Airflow builds from it. Two things to notice. The tasks hand each other a path, not the orders themselves. And executing this file only builds the graph. The tasks run later, somewhere else."
+    },
+    {
+      "course": "first-dag",
+      "section": "local-demo",
+      "file": "first-dag/local-demo.wav",
+      "narration": "Before running anything, be clear about what a local demonstration is. Airflow standalone starts every component on one machine, with a local metadata database, so you can watch the pipeline run end to end. That is useful for learning, and it is all it is. Keep it isolated. The tasks should read a folder of sample files rather than a production bucket, and any connection should use credentials that exist only for the demo and can be thrown away. New DAGs start paused, so nothing runs until you choose. Unpause the DAG and trigger a run explicitly, from the command line or from the UI. One subtlety: a DAG with a schedule, once unpaused, may also get its most recent scheduled run created by the scheduler, so do not be surprised to see two runs. And when the demo goes green, notice what it has not shown: nothing about capacity, about who can run which code, or about how real secrets are stored. Next, reading what the run tells you."
+    },
+    {
+      "course": "first-dag",
+      "section": "reading-a-run",
+      "file": "first-dag/reading-a-run.wav",
+      "narration": "Now read the evidence a run leaves behind. The grid view has one row per task and one column per run, so a failure stands out as a single cell. In the run for March second, validate orders failed, and publish summary shows upstream failed, which means it never started. That is the design working: a bad file did not reach the published summary. The log of the failing attempt tells you why. It read the day's file, found no orders, and raised the error we wrote. And because the runs on either side are green, the code is probably fine and the data for that day is the thing to chase. One more thing to see before we move on. A retry runs the whole task again, including anything it writes. If publish summary adds its row and then the worker is lost before Airflow records success, the retry adds the row a second time. A successful first run proves the path works once. Making reruns safe is a later chapter, and next we look at the components that made this run happen."
+    },
+    {
+      "course": "execution",
+      "section": "dag-processing",
+      "file": "execution/dag-processing.wav",
+      "narration": "The first component to meet is the DAG processor, because nothing else happens until it has done its job. It imports each Python file in a DAG bundle, which is the set of DAG files a deployment reads from, and it does this repeatedly, so that edits are picked up. Importing a file runs its top-level code, collects the DAG objects it defines, and writes each one into the metadata database in serialized form. That serialized copy is what the scheduler and the UI actually work from. If the file raises while it is being imported, there is nothing to serialize, so you get an import error in the UI instead, and the DAG keeps whatever version was last parsed successfully. This is why top-level code matters. The snippet on the left calls a web API at module level, which means it calls it every time the file is parsed, all day long. Work like that belongs inside a task, where it runs once per run. Next, what the scheduler does with these graphs."
+    },
+    {
+      "course": "execution",
+      "section": "scheduler",
+      "file": "execution/scheduler.wav",
+      "narration": "The scheduler is the decision maker. On every loop it reads the serialized DAGs and the current state of every run, and works out what may happen next. It creates new DAG runs when their data intervals have finished. For each task instance in those runs, it checks the upstream tasks against the task's trigger rule, which by default means every upstream task succeeded. Then it checks limits: is there a free slot in the task's pool, is the DAG under its maximum number of active tasks, is the task under its own concurrency cap. Task instances that pass every check are queued and handed to the executor. Notice what the scheduler does not do: it never runs your task code. That makes a task stuck in the scheduled state easier to read. Nothing has failed. One of the gates is closed, and the job is to find which one. A full pool will not open because you added scheduler capacity. Next, what happens after a task is queued."
+    },
+    {
+      "course": "execution",
+      "section": "executors",
+      "file": "execution/executors.wav",
+      "narration": "Once a task instance is queued, the executor takes over. The executor lives inside the scheduler process, and its job is to decide where the task's process starts. With the local executor, that is a subprocess on the scheduler's own machine. With Celery, the task goes onto a message queue and one of a fleet of long-lived workers picks it up. With Kubernetes, each task instance gets a fresh pod of its own. Whichever you choose, a worker runs exactly one task instance at a time in that process, and reports its state back. But look at the lower panel, because there is often a second level of running. Building the sales tables does not happen inside the Airflow worker. The task submits a query to the warehouse or an application to a Spark cluster, and then waits. So when someone asks whether a task is running, the honest answer may be two answers. The task process might be gone while the external job keeps writing. We return to that at the end of this chapter."
+    },
+    {
+      "course": "execution",
+      "section": "api-server",
+      "file": "execution/api-server.wav",
+      "narration": "Every component so far has been reading or writing the metadata database, so it is worth being clear about what it holds and who touches it. The metadata database is Airflow's own record: which DAGs exist, which runs were created, the state of every task instance, every attempt and its timing, and small values passed between tasks. In Airflow 3, the API server is the way into that record. It serves two different audiences. People, the command line and scripts use the UI and the public API to look at runs, read logs and trigger work. Running tasks use the task execution API to report state changes and to fetch the XComs, variables and connections they need. The important change is that task code on a worker does not open a database connection of its own. That keeps credentials away from task code, and it keeps the database what it should be: a control-plane record sized for metadata, not a place to put pipeline data. Next, the component that waits."
+    },
+    {
+      "course": "execution",
+      "section": "triggerer",
+      "file": "execution/triggerer.wav",
+      "narration": "A surprising amount of a pipeline's life is spent waiting. Waiting for the day's orders file to land, waiting for a warehouse query to finish, waiting for a partner's export. The triggerer exists so that waiting does not cost a worker. Follow the numbered steps. A deferrable task starts on a worker like any other, then defers: it hands Airflow a trigger, a small piece of asynchronous code that knows how to watch for one event, and gives its worker slot back. The triggerer runs many of these triggers together in a single process. When the event fires, the scheduler puts the task back in line, and it resumes on a worker to finish its work. Now compare a sensor that pokes in place. It occupies a worker slot for the entire wait, mostly sleeping between checks. One of those is harmless. A hundred of them can fill a worker fleet that is doing no work at all. And remember the dependency: deferred tasks only come back if a triggerer is running. Next, the states we have been naming."
+    },
+    {
+      "course": "execution",
+      "section": "task-states",
+      "file": "execution/task-states.wav",
+      "narration": "Task states are worth learning precisely, because each one points at a component. Scheduled means the scheduler has checked the dependencies and they are met; if a task sits there, look at pools and concurrency limits. Queued means the executor has it, and it is waiting for a worker; a task stuck in queued usually means no worker capacity. Running means a process is working on it right now. And success means the task's callable returned without raising, which, as we saw, says nothing about whether the data is right. Then there are the states that leave this path. Up for retry means an attempt failed and another one is coming after the retry delay; failed means the retries are used up. Deferred means the task is waiting on the triggerer and holds no worker. Skipped and upstream failed both mean the task never ran: one because a branch did not choose it, the other because something it depended on failed. Removed means the task is no longer in the DAG. Next, the three different kinds of state in play."
+    },
+    {
+      "course": "execution",
+      "section": "metadata-vs-data",
+      "file": "execution/metadata-vs-data.wav",
+      "narration": "To finish the chapter, separate three records that are easy to blur together. The metadata database records what Airflow decided and observed: runs, task states, attempts. The pipeline data is something else entirely: the orders files, the staged tables, the sales summary the business reads. And external systems keep their own state for the work they did: a Spark application has a status, a warehouse query has an id. Usually the three agree. The lower panel shows a case where they do not. Build sales submits a Spark job. The worker running the task is lost, so Airflow marks the attempt as failed. But the Spark job never heard about that, and keeps writing tables. Clearing the task in Airflow changes Airflow's record; it does not stop or undo the job. So when a task looks stalled or failed, check all three records, and design tasks to record the external job id so a later attempt can find the job instead of starting another. Next chapter: which data a run should process."
+    },
+    {
+      "course": "scheduling",
+      "section": "run-triggers",
+      "file": "scheduling/run-triggers.wav",
+      "narration": "Before choosing a schedule, notice that a DAG run can start for three quite different reasons, and each one carries a different promise about time. A scheduled run starts because the DAG's timetable fired, and the timetable decides its logical date and its data interval. A manual run starts because a person clicked trigger or a script called the API, and in Airflow 3 it does not have to carry a logical date at all. An asset-triggered run starts because data it depends on was updated upstream; it has no time window of its own. Now look at the lower panel. Our extract task from chapter one picks its file using ds, the run's date. That works for scheduled runs. For a manual run with no logical date, ds may simply be missing. For an asset-triggered run, the date says when the run started, not which data changed. So a task's assumptions about time are really assumptions about how its run was started. Next, the schedule forms themselves."
+    },
+    {
+      "course": "scheduling",
+      "section": "cron-and-timedelta",
+      "file": "scheduling/cron-and-timedelta.wav",
+      "narration": "Whatever you pass to the schedule argument becomes a timetable, the object that decides when runs fire and which window of time each run is about. The familiar forms hide that choice. A cron string, or a preset such as at-daily, fires at fixed clock times. A timedelta fires a fixed duration after the previous run. And you can pass a timetable object directly, which states its semantics in the code. Here is the part that catches people moving from Airflow 2. In Airflow 3, by default, a cron string or a timedelta becomes a trigger timetable. A trigger run fires at the scheduled moment, and its data interval has zero length: the start and the end are the same instant. That is fine for a job that acts now, but our pipeline wants to own the previous day of orders. For that, use the cron data interval timetable explicitly, as in the last line. Because deployment configuration can change the default, state the timetable in the DAG rather than rely on it. Next, the fields of a run."
+    },
+    {
+      "course": "scheduling",
+      "section": "data-intervals",
+      "file": "scheduling/data-intervals.wav",
+      "narration": "Now take one run apart. With the data-interval timetable, the run for the first of March covers the first of March. It cannot start until that day has ended, because only then is the day's data complete, so it becomes due at midnight on the second. And it actually starts a few minutes later, whenever the scheduler and the workers get to it. That gives four names for three different times. The data interval is the window of data the run owns: from midnight on the first to midnight on the second. The logical date, for this timetable, is the start of that interval, and it names the run. The run id is a unique, stable identifier built from it, which you can safely write into logs and output paths. And the start date is simply when work began. Each has one job. Select data with the interval, never with the start date. Identify the run with the run id. And if you want to know how late a pipeline is, compare the start date with the interval's end. Next, when the first run happens."
+    },
+    {
+      "course": "scheduling",
+      "section": "start-date-catchup",
+      "file": "scheduling/start-date-catchup.wav",
+      "narration": "So when does a new DAG actually run? The start date says when the first interval begins, nothing more. The DAG still does nothing until it is unpaused, and then the scheduler only creates runs for intervals that have closed. Take our pipeline with a start date of the first of March, unpaused at ten in the morning on the fifth. With catchup set to false, which is the default in Airflow 3, the scheduler creates one run: the most recent closed interval, the fourth of March. The first three days are never run unless you ask. With catchup set to true, it creates a run for every closed interval since the start date, the first through the fourth, and works through them. Either way, the fifth of March is still open, so its run waits until midnight. A few habits follow. Use a fixed, timezone-aware start date, never something computed from now, which moves every time the file is parsed. Set catchup explicitly. And treat large historical reprocessing as a backfill, which is chapter seven. Next, time zones."
+    },
+    {
+      "course": "scheduling",
+      "section": "timezones",
+      "file": "scheduling/timezones.wav",
+      "narration": "Time zones look like a display detail until the clocks change. Airflow stores every time in UTC. But if a business day is a London day, you schedule in Europe London, and then the timetable follows local clock times. Look at the table. Most days, local midnight to local midnight is twenty-four hours. On the twenty-ninth of March twenty twenty-six, the clocks go forward, so that day is only twenty-three hours long. On the twenty-fifth of October, they go back, and that day is twenty-five hours. Notice the stored start times too: after the March change, local midnight is eleven at night UTC on the previous day. None of this is a bug, but it has consequences. A daily volume chart will show a dip on the short day that is not a business problem. And any code that builds dates from naive datetimes, with no zone attached, can land on the wrong day entirely. So give the start date and the timetable an explicit zone, and keep naive datetimes out of task code. Next, using these intervals in tasks."
+    },
+    {
+      "course": "scheduling",
+      "section": "interval-io",
+      "file": "scheduling/interval-io.wav",
+      "narration": "Now put the interval to work. A task should ask its run which data to process, and in TaskFlow that is as simple as naming a context value as a parameter. Extract orders takes data interval start, and uses its date to choose the file. Stage orders uses the same date to replace exactly that day's partition in the staging table. Because both the read and the write come from the run's identity, running the same run again reads and replaces the same data. That property is what the rest of this course builds on. Compare the one-line version underneath, which works out yesterday from the wall clock. It gives the right answer only if the task runs on the day after its interval. Rerun the March first run on March ninth, and it quietly processes March eighth instead, and overwrites nothing it should. Late runs, retries after an outage and backfills all break a clock-based task in the same way. So the rule is short: dates come from the run context, never from now. Next, the two timetable semantics side by side."
+    },
+    {
+      "course": "scheduling",
+      "section": "timetables",
+      "file": "scheduling/timetables.wav",
+      "narration": "To close the chapter, put the two timetable semantics side by side, because they can describe the same moment in completely different terms. Both fire at midnight on the second of March. The cron trigger timetable says this run is about the second of March: its logical date is the second, its interval has no length, and ds is the second. The cron data interval timetable says this run is about the first of March: its logical date is the first, its interval runs from the first to the second, and ds is the first. Same moment, different identity, and every path or partition derived from that identity will be one day apart. Neither is wrong. Trigger time suits jobs that act now, like sending a report or refreshing a cache. A data interval suits jobs that own a period of data, which is what our order pipeline does. Beyond the built-ins, event timetables cover fixed lists of dates, and custom timetables exist, but they are a plugin you maintain, so reach for them last. Next chapter: task boundaries."
+    },
+    {
+      "course": "task-design",
+      "section": "granularity",
+      "file": "task-design/granularity.wav",
+      "narration": "Chapter four is about the shape of individual tasks, and it starts with where to cut. A task is the unit Airflow retries, records and alerts on, so the boundary you draw decides what a retry repeats and what a failure tells you. Look at the three cuts of the same pipeline. One big task that extracts, validates, stages, builds and publishes is easy to write, but a failure in the last step retries the first, and the single log tells you little. Forty tiny tasks swing too far the other way: each one has scheduling overhead, and data has to be handed across every boundary. The five-task version sits in between: each step can be retried on its own, and each has its own state and log. Three questions help decide. Can this step be retried alone, without redoing or duplicating something else? Does it produce one output that someone can name, a file, a table or a partition? And would anyone act on its failure as an alert of its own? Next, the two ways to write a task."
+    },
+    {
+      "course": "task-design",
+      "section": "taskflow-and-operators",
+      "file": "task-design/taskflow-and-operators.wav",
+      "narration": "So far every task has been a TaskFlow function. That is one of two ways to write a task. The other is an operator: a ready-made task class, usually from a provider package, which you configure with arguments rather than code. In the excerpt, build sales is a SQL execute query operator, pointed at the warehouse connection and a SQL file. Choose by where the logic lives. If the step is your own Python, write a task function. If a provider already knows how to do the job, such as running a query against a warehouse, use its operator rather than reimplementing it. Either way, the result is a task with the same states, retries and logs. Dependencies can also be declared two ways. When you pass one task's output into another, as with extract and stage, the dependency follows from the data. When no data passes, as between staging and the warehouse build, you state the order explicitly with the shift operator. And when an operator does produce a value, its output attribute lets you pass it on. Next, what actually travels between tasks."
+    },
+    {
+      "course": "task-design",
+      "section": "xcom",
+      "file": "task-design/xcom.wav",
+      "narration": "When one TaskFlow task returns a value and another receives it, Airflow is storing that value in between, as an XCom. The producer's return value is serialized and stored, and when the consumer runs, possibly on a different machine, it is loaded and passed in as an argument. By default the store is the metadata database. That single fact tells you what belongs in an XCom. References are ideal: a path to the day's orders file, a table name, a partition key. Small facts are fine: a row count, a checksum, the id of an external job. A short list, such as the shops to process today, is fine too. What does not belong is the data itself. A gigabyte DataFrame does not belong in the control plane's database; write it to storage and pass the path. And live objects, such as an open database connection, cannot be serialized at all. You can configure a custom XCom backend that keeps values in object storage, but the design rule still stands. Pass references, not data. Next, why those references must be shared."
+    },
+    {
+      "course": "task-design",
+      "section": "shared-storage",
+      "file": "task-design/shared-storage.wav",
+      "narration": "A reference only helps if the next task can resolve it, and that brings us to where tasks run. Two tasks in the same DAG run can run on two different machines. If extract orders writes the day's file to its own temp directory and passes that path along, the validate task, on another worker, finds nothing there. The frustrating part is that this works perfectly in a local demo, because every task shares one machine and one temp directory. It breaks the first time the DAG runs on a distributed executor. With Kubernetes it breaks even more thoroughly, because each task instance gets a fresh pod, so a retry of the same task cannot see what its own previous attempt wrote. The fix is to pass references that any worker can resolve: an object store URI, or a warehouse table together with a partition key. And build those references from the run's interval rather than from anything random, so that a retry, or a rerun next week, lands in exactly the same place. Next, how tasks reach those systems."
+    },
+    {
+      "course": "task-design",
+      "section": "providers-and-connections",
+      "file": "task-design/providers-and-connections.wav",
+      "narration": "Tasks rarely work alone; they talk to warehouses, object stores and APIs. Airflow organises that through providers, hooks and connections. A provider is a separately installed package for one system, such as Postgres or Amazon, and it supplies the operators and hooks for it. A hook is a client: it knows how to open a session with that system and run something. And a connection is configuration: where the system is and how to authenticate to it. The chain runs like this. A task creates a hook, the hook asks for a connection by id, here the word warehouse, and at run time Airflow resolves that id. It looks in a secrets backend if one is configured, then in environment variables, then in the metadata database. The point of that indirection is that DAG code never contains a password. It names a connection id, and each environment, development, staging, production, maps that same id to its own credentials. Airflow masks known secrets in logs, but code that prints a credential still leaks it. Next, configuration that is not a credential."
+    },
+    {
+      "course": "task-design",
+      "section": "variables-and-params",
+      "file": "task-design/variables-and-params.wav",
+      "narration": "Not everything a task needs is a credential. Some of it is ordinary configuration, and Airflow offers three places for it, which differ mainly in scope. A Variable is deployment-wide: any DAG can read it, which suits something like the name of the orders bucket. A Param belongs to one DAG. It has a default, and it can have a schema, so in the example, shops must be an array of strings. And run configuration is the set of values supplied when a particular run is triggered; it is validated against the DAG's Params. A few habits keep this safe. Read Variables inside tasks, where they are fetched once at run time. A Variable read at the top of the file is fetched on every parse, which we saw is often. Give Params a type, so that a person triggering a run with a misspelled shop list gets an error before any task starts, rather than a half-finished run. And do not store credentials as Variables; that is what connections, with their secrets backends, are for. Next, templates."
+    },
+    {
+      "course": "task-design",
+      "section": "templating",
+      "file": "task-design/templating.wav",
+      "narration": "Operators take their run-specific values through templates. A templated field accepts Jinja, such as ds in double braces, and Airflow renders it just before the task executes, using the run's context. At parse time the template is just text, which is why it can refer to a run that does not exist yet. And only the fields an operator lists as templated are rendered, so a template in any other argument stays literally as written. The more important lesson is about what rendering is allowed to produce. In the safe version, the day goes into the SQL as a bound parameter: the query text never changes, and the database receives the value separately. The shop goes into the shell command through an environment variable, quoted in the command. Now look at the unsafe version underneath, which pastes the shop parameter straight into the command text. Anyone who can trigger the DAG with a shop of x semicolon rm, can run commands of their own on your worker. Keep values as values. Next, the hardest task to get right."
+    },
+    {
+      "course": "task-design",
+      "section": "external-jobs",
+      "file": "task-design/external-jobs.wav",
+      "narration": "The last task design problem is the hardest one: a task whose real work happens in another system. Building the sales tables means submitting a Spark job and waiting. Now suppose the first attempt submits the job, then times out while waiting. The job is still running. The obvious retry submits again, and now two jobs race to write the same table. The fix is to make the job identifiable from the run itself. Derive a stable name from the run, such as build sales plus the interval's date. Before submitting, look that name up. If a job with it exists, attach to it and keep waiting; if it already succeeded, check its output and finish. Only if nothing exists, submit. Then poll, or better, defer, until it ends, check the final state and the outputs, and if you fail, fail with the job's id in the log so a person can find it. One detail matters: do not count on reading the previous attempt's XCom to find the job, because a task's XComs are cleared when it runs again. The name is the memory. Next chapter: conditional and dynamic work."
+    },
+    {
+      "course": "dynamic-work",
+      "section": "explicit-and-inferred",
+      "file": "dynamic-work/explicit-and-inferred.wav",
+      "narration": "Chapter five is about graphs whose shape is less fixed: branches, groups and mapped tasks. It starts with a reminder about what the scheduler knows, which is only the dependencies you declare. Passing data declares one for you. When the output of extract orders goes into validate orders, the edge between them exists because the data has to flow. When no data passes, you declare the order yourself. Refreshing the shop dimension must finish before staging, so the code says dims, shift, staged. Both kinds of edge are the same to the scheduler, and chain can declare a long sequence in a single line. The trouble is the dependency nobody declared. Build sales also reads the shop dimension table, but there is no edge between them. Most days the refresh happens to finish first, and the result is right. On a slow day it does not, and build sales quietly reads yesterday's dimension. The scheduler could not have prevented it, because it was never told. If one task reads what another writes, declare the order, even when no XCom passes. Next, graphs that choose a path."
+    },
+    {
+      "course": "dynamic-work",
+      "section": "branching",
+      "file": "dynamic-work/branching.wav",
+      "narration": "Some days the pipeline should do something different. Say a full reload of the orders on Mondays, and an incremental load every other day. A branch task makes that choice. Decorated with task dot branch, it returns the id of the task, or tasks, to run next, and Airflow marks the tasks on every other path as skipped. Skipped is not failed; it means deliberately not run. A short circuit task is the blunt version: it returns true or false, and on false it skips everything downstream. The surprise comes at the join. Build sales sits after both paths. On Tuesday, the incremental path succeeds and the full load is skipped. With the default trigger rule, all success, a skipped upstream is not a success, so the join is skipped too, and the skip spreads to everything after it. Give the join the rule none failed, min one success, and it runs after whichever path was taken, while still refusing to run after a real failure. All done would run after a failure as well, which is rarely what a join should do. Next, trigger rules on leaf tasks."
+    },
+    {
+      "course": "dynamic-work",
+      "section": "trigger-rules",
+      "file": "dynamic-work/trigger-rules.wav",
+      "narration": "Trigger rules decide when a single task may run, but they also affect something less obvious: the state of the whole DAG run. A run's final state is decided by its leaf tasks, the ones with nothing downstream. Now follow run three-four. Build sales fails, so publish summary is upstream failed. But the DAG also has a cleanup task, drop scratch, which removes temporary tables. It has the trigger rule all done, so that it always runs, and it succeeds. It is the only leaf in the graph, so the run is marked as a success, and an alert that waits for failed runs never fires. There are two clean fixes. Mark the cleanup as a teardown task. Teardowns run even after failures, and they are deliberately ignored when Airflow judges the run, so the failure in build sales still decides it. Or add a watcher leaf with the rule one failed, which only runs when something upstream failed, and then fails on purpose. The table underneath lists the rules you will meet most. Next, grouping tasks."
+    },
+    {
+      "course": "dynamic-work",
+      "section": "task-groups",
+      "file": "dynamic-work/task-groups.wav",
+      "narration": "As graphs grow, TaskGroups keep them readable. A group gathers related tasks into one collapsible box in the graph view, and prefixes their task ids with the group's id, so here stage orders becomes load dot stage orders. The decorated form takes inputs and can return a task's output, so a group can sit in the middle of the TaskFlow wiring like a single function, and you can set dependencies on the whole group at once. That is all organisation, and it is genuinely useful. What a group is not is an isolation boundary, and it is easy to assume it is. The tasks inside still retry one at a time: if build sales fails, Airflow does not rerun the staging step for you. They run on the same workers, with the same installed packages, as everything else in the DAG. And a group has no access controls of its own; permissions apply to the DAG as a whole. When you need a real boundary, with its own schedule, owner, environment or access, that is a separate DAG or a task that runs in its own container. Next, generating many tasks."
+    },
+    {
+      "course": "dynamic-work",
+      "section": "parse-vs-runtime",
+      "file": "dynamic-work/parse-vs-runtime.wav",
+      "narration": "Suppose each shop should be loaded by its own task. There are two ways to get many similar tasks, and the difference is when the list is decided. A Python loop in the DAG file creates one task per item when the file is parsed. That is fine when the list is part of your configuration and rarely changes: every run has the same graph, and the graph view shows every shop by name. It is the wrong tool when the list comes from somewhere live, such as an API of active shops, because that call would happen on every parse and the graph would change shape under running DAG runs. Dynamic task mapping decides the list during each run instead. A task produces the list, here list active shops, and load shop is expanded over it, one task instance per element. Each run can have a different number of instances, and because the list is a task output, it is recorded with the run that used it. Mapping is the wrong tool for a list that never changes; there a loop is simpler to read. Next, how mapping works."
+    },
+    {
+      "course": "dynamic-work",
+      "section": "expand-partial",
+      "file": "dynamic-work/expand-partial.wav",
+      "narration": "Here is the mapping itself. List active shops returns three shops. Load shop is called with partial and expand: partial fixes the arguments that are the same for every instance, here the day, and expand names the argument that varies, here the shop. At run time Airflow creates one task instance per element, each with a map index, zero, one and two, and each with its own state, retries and log. So if shop two fails, only shop two retries. The outputs come back together. Sum counts is given the mapped output, and receives all three results in map order, which is the reduce step. Two edge cases deserve a decision before they happen. If the list is empty, there are no instances at all, and Airflow marks the mapped task as skipped. That skip spreads downstream like any other, so a day with no active shops can quietly skip the publish step unless its trigger rule allows it. And if one instance fails, the mapped task as a whole counts as failed. Sometimes that is right, and sometimes one bad shop should not block the rest. Next, keeping fan-out bounded."
+    },
+    {
+      "course": "dynamic-work",
+      "section": "mapping-limits",
+      "file": "dynamic-work/mapping-limits.wav",
+      "narration": "Mapping makes it very easy to start a large number of task instances, and lists have a habit of growing. Today there are forty shops. Imagine five thousand. Three things go wrong. Expansion itself stops: the max map length setting caps a mapped task at one thousand and twenty-four instances by default, and beyond that the task fails. If the cap were raised, five thousand instances could open five thousand sessions against the warehouse at once, which is a good way to take it down. And a grid with five thousand cells is hard to read and slow to load. So bound the fan-out before it grows. Max active task instances per DAG run caps how many of the instances run at the same time. A pool shares a fixed number of warehouse slots across every DAG that uses it, which protects the warehouse even when two DAGs fan out together. Often the best fix is to batch the list: one instance per hundred shops. And use a map index template, so an instance is named after its shop rather than a bare number, which makes logs and retries readable. Next chapter: retries and correctness."
+    },
+    {
+      "course": "idempotency",
+      "section": "retries-and-timeouts",
+      "file": "idempotency/retries-and-timeouts.wav",
+      "narration": "Chapter six is about correctness when work runs more than once, and the first question is when it should run more than once at all. A retry only helps if the next attempt can succeed. So classify the failure. A reset connection or a rate limit from the partner API is transient: wait, and it will probably work. Bad credentials, a missing table, or a file with no rows are permanent: the next attempt will fail the same way, and retrying only delays the alert by however long the retries take. Then bound the retries. Retries and retry delay cap the number of attempts and space them out. Exponential backoff doubles the delay each time, up to a maximum, which is kinder to a struggling service. Execution timeout matters just as much: an attempt that hangs for an hour is neither failing nor succeeding, and the timeout turns it into a failure that can be retried. Finally, when task code knows a failure is permanent, it can raise an Airflow fail exception, which fails the task immediately without using its retries. Next, what makes a retry safe."
+    },
+    {
+      "course": "idempotency",
+      "section": "idempotent-tasks",
+      "file": "idempotency/idempotent-tasks.wav",
+      "narration": "A task is idempotent when running it again for the same run leaves the same result as running it once. That property is what makes everything else in Airflow safe: retries, clearing a task to rerun it, and backfills all assume it. It needs two ingredients. The first we already have from chapter three: deterministic inputs, chosen from the run's interval rather than the wall clock, so every attempt reads the same data. The second is how the task writes. Look at the two versions. The first simply inserts the day's sales totals. The first attempt writes forty rows, one per shop. A retry writes forty more, and a rerun next week another forty, so the day's sales are now three times too high. The second version deletes the day's rows and inserts them again, inside one transaction. However many times it runs, the day has forty rows. An upsert, keyed on day and shop, achieves the same. The general rule is that a task should own a well-defined slice of its output, here one day, and rewrite that slice whole. Next, publishing that slice safely."
+    },
+    {
+      "course": "idempotency",
+      "section": "atomic-publication",
+      "file": "idempotency/atomic-publication.wav",
+      "narration": "Idempotence makes a rerun safe. Atomic publication makes the moment of writing safe, which matters because people and dashboards read the summary while it is being rebuilt. The pattern has four steps. Build the new result somewhere readers do not look, a staging table or a staging prefix. Check it there: row counts, totals, nulls, while the live result is still yesterday's good one. Then switch readers over in a single atomic step. And drop the staging copy afterwards. Every step can safely run again, so a retry at any point lands in the same place. What counts as an atomic step depends on the store. In a warehouse, a delete and an insert inside one transaction, or a merge statement. In a partitioned table, overwriting a single partition. In an object store, which has no transactions across files, write the new files under a fresh prefix and then update one pointer, such as a manifest, to point at it. Compare writing straight into the live table: a reader can catch it half-written, and a crash halfway leaves a mix of old and new. Next, effects that cannot be replaced."
+    },
+    {
+      "course": "idempotency",
+      "section": "duplicate-side-effects",
+      "file": "idempotency/duplicate-side-effects.wav",
+      "narration": "Some tasks change things that cannot simply be overwritten. Sending the daily figures to finance by email. Posting invoices to a partner's API. Issuing refunds. A retry of these does not replace anything: it repeats it, and two invoices are not the same as one. The tool here is a stable request key. Build it from the run itself, the DAG id, the task id and the run id, so that every attempt and every rerun of that run produces exactly the same key. If the partner's API accepts an idempotency key, send it, and the server will recognise and drop the duplicate. If it does not, look the key up before sending, and skip the send if it has already happened. Record the sent keys somewhere durable; an XCom will not do, because it is cleared when the task runs again. There remains a small window, between the send succeeding and you recording it, so reconcile against the partner's records from time to time. And be honest about the limit: Airflow schedules attempts. It cannot make an external effect happen exactly once. Next, two runs at the same time."
+    },
+    {
+      "course": "idempotency",
+      "section": "concurrent-runs",
+      "file": "idempotency/concurrent-runs.wav",
+      "narration": "So far we have looked at one run repeating itself. A related problem is two runs at the same time. Airflow is happy to run several runs of the same DAG at once: today's scheduled run, a manual rerun of yesterday, a backfill working through last month. If those runs write different partitions, they never meet. If they write the same output, they can. In the example, a rerun of the fourth of March and the scheduled run for the fifth both rebuild the month-to-date sales table. Whichever finishes last wins, and the other run's work is lost. Without a transaction, a reader might even see half of each. The controls, from narrowest to broadest: first, design each run to write only its own partition, so there is nothing to share. Where a shared output is unavoidable, let the store serialise the writes, with a transaction or a merge. A pool with a single slot allows only one publishing task at a time, even across different DAGs. And max active runs set to one serialises the whole DAG, which is simple but slows every backfill. Next, checking before publishing."
+    },
+    {
+      "course": "idempotency",
+      "section": "quality-gates",
+      "file": "idempotency/quality-gates.wav",
+      "narration": "Everything so far has been about running safely. None of it tells you the data is right. A quality gate does: a task, or a group of check tasks, placed between building the result and publishing it, which fails when the data is wrong. Good checks cover a few kinds of error. Completeness: is there a row for every active shop? Validity: are there null keys, or values out of range? Uniqueness: is there exactly one row per day and shop? And reconciliation, the most valuable and the most often skipped: do the totals agree with the source system, within a tolerance? In the example, every structural check passes, but the day's total is nearly eight percent below the point-of-sale system. Something upstream lost orders. Because the gate fails, publish never runs, so yesterday's correct summary stays live instead of a wrong one replacing it. The alert should carry the actual numbers, not just the words task failed. Staging is kept for diagnosis, and once the cause is fixed, a rerun publishes the day. Next, callbacks, and what they can and cannot do."
+    },
+    {
+      "course": "idempotency",
+      "section": "callbacks",
+      "file": "idempotency/callbacks.wav",
+      "narration": "To close the chapter, a word about callbacks. A callback is a function Airflow calls when a task or a DAG run changes state: when an attempt fails, when it will be retried, when it succeeds, or when the whole run fails. They are the natural place for notifications. Post to the team's chat channel or page the person on call when a run fails, and include the run id, the task and a link to its log, so the person can start immediately. But treat a callback as a signal, not a guarantee. If a worker is killed in the middle of a task, for example because it ran out of memory, the failure callback for that attempt may never run. If a cleanup leaf has made a failed run look green, as we saw in chapter five, the DAG's failure callback is never called at all. So do not put work that must happen into a callback. Cleanup belongs in a teardown task, and correctness belongs in a gate task. And because the worst failure is the run that never happened at all, alert on stale data as well as on failures. Next chapter: recovering history."
+    },
+    {
+      "course": "backfills",
+      "section": "recovery-mechanisms",
+      "file": "backfills/recovery-mechanisms.wav",
+      "narration": "Chapter seven is about recovering history: reprocessing days that were missed, failed, or produced the wrong answer. Airflow offers several ways to run work again, and choosing between them starts with telling them apart. A retry is automatic: one task instance, after a failed attempt, inside the same run. Clearing is a person resetting chosen task instances inside existing runs, so the scheduler runs them again, still in those runs. A manual trigger starts one new run. Catchup is the scheduler creating runs for intervals that were missed, when a DAG is unpaused with catchup turned on. And a backfill is a person asking for runs across a chosen range of dates, which the scheduler then works through. They also share two things worth keeping in mind for the whole chapter. They all run the current DAG code, with the same tasks and the same side effects as a normal run. And none of them undoes anything. Clearing a task resets its state in Airflow; whatever its earlier attempts wrote to the warehouse or sent to a partner is still there. Next, deciding which days need repair."
+    },
+    {
+      "course": "backfills",
+      "section": "affected-intervals",
+      "file": "backfills/affected-intervals.wav",
+      "narration": "Before repairing anything, make a list. Every interval in the window gets a row: its run state in Airflow, the state of its output, and the action it needs. Doing this on paper first matters because the two states often disagree. Here is the incident. A change shipped on the twenty-fourth of February at two in the afternoon dropped refunds from the sales totals; the fix shipped on the second of March. Separately, the warehouse was down on the twenty-sixth and twenty-seventh. Now read the matrix. Most of the affected days have green runs: the tasks succeeded, and the output is wrong. Only the twenty-sixth failed, because of the outage, and the twenty-seventh has no run at all, because the DAG was paused. The twenty-third and the second of March fall outside the bug's window, and should be left alone. Notice how you find that window. Not from the failures, which point at the outage, but from when the cause began and ended, confirmed by checking the output itself. The written list then becomes the backfill's range and the checklist for verifying it. Next, creating the backfill."
+    },
+    {
+      "course": "backfills",
+      "section": "backfill-policy",
+      "file": "backfills/backfill-policy.wav",
+      "narration": "In Airflow 3, a backfill is something you create, from the UI or the command line, and the scheduler then runs it like any other work. Its most important setting is the reprocess behaviour, which decides which intervals in the range actually become runs. None creates runs only for intervals that have no run yet. Failed also includes intervals whose run failed. Completed creates a run for every interval in the range, including the ones that succeeded. Look back at our matrix. Most of the damaged days have successful runs with wrong output, so none or failed would quietly skip them: only completed repairs the bug. Always start with a dry run. It lists the runs the backfill would create without creating anything, and you compare that list with the one you wrote down. Remember that it is computed from the run states at that moment, so if someone clears or triggers runs in the meantime, the real backfill can differ. By default runs go oldest first, which suits pipelines where each day builds on the last; run backwards reverses that. And max active runs limits how many replay days run at the same time. Next, capacity."
+    },
+    {
+      "course": "backfills",
+      "section": "backfill-capacity",
+      "file": "backfills/backfill-capacity.wav",
+      "narration": "A backfill does not get its own infrastructure. Its runs use the same workers, the same pools and the same warehouse as the live schedule. Picture ten minutes past midnight on the third of March. Today's run for the second has a deadline: the summary is due at six. The backfill has no deadline, but it may have dozens of runs ready to go. And all of them want the same four warehouse slots. Without limits, the backfill fills them and the live run waits. So set limits, from the outside in. The pool protects the warehouse itself, across every DAG that touches it. The backfill's own max active runs caps how many replay days run at once. The DAG's max active tasks caps task instances across all of its runs, live and replayed alike. Within those limits, priority weight decides who gets a free slot first, so giving the live tasks a higher weight lets them jump the queue. And the simplest control of all is time: when you can, run a large backfill outside the hours the live pipeline needs. Next, clearing tasks inside existing runs."
+    },
+    {
+      "course": "backfills",
+      "section": "clearing-scope",
+      "file": "backfills/clearing-scope.wav",
+      "narration": "Clearing is the right tool when the runs exist and you want selected tasks in them to run again. It resets those task instances, and the scheduler picks them up as if they had never run. The decision is the scope. Clearing build sales alone is right when only its output was wrong. Adding downstream also resets publish, which is what you want when consumers must rebuild from the corrected output; usually they must. Adding upstream resets extraction and staging, which only makes sense when the inputs themselves were wrong. And past and future reach across into other runs, so read the list of task instances carefully before confirming. On the command line, the same choice is the task pattern, the date range, and the downstream flag. Before you clear, keep the evidence. Earlier attempts' logs are kept, and the try number simply rises, so the history survives. The bad output does not survive: the rerun overwrites it, so copy it aside if anyone may need to see it. Write a short note of what was cleared, why and for which days. And remember that clearing changes Airflow's state, not the data. Next, what changed since then."
+    },
+    {
+      "course": "backfills",
+      "section": "replay-changes",
+      "file": "backfills/replay-changes.wav",
+      "narration": "A backfill of February runs in March, and the world has moved on in between. Four things deserve a decision before the replay starts. The code: the replay runs today's DAG, which is exactly why it fixes the bug, but it also carries every other change made since February. If a business rule changed on a particular date, today's code may apply it to days before that date. The schema: a column added last week may not exist in February's raw files, so check that the task can read the old shape. Reference data: shops have been renamed and merged since February, and joining old orders to today's shop table gives today's names. If the history exists, read reference data as of the interval being processed. And retention: if raw files are kept for thirty days, the oldest days of the window may no longer have inputs at all. Confirm every input exists before the replay starts, and if a task cannot find its input, it should fail loudly rather than produce a partial day that looks complete. Next, repairing at scale."
+    },
+    {
+      "course": "backfills",
+      "section": "staged-repair",
+      "file": "backfills/staged-repair.wav",
+      "narration": "For a large repair, say a whole quarter, do not overwrite the live tables and hope. Stage it. Replay into a shadow table that nobody reads. Reconcile the shadow against two things: the live output, so you can see exactly which days change and by how much, and the source system, so you can see the repaired numbers are right. Then switch over a month at a time, each switch an atomic partition swap, so a problem found in one month does not reach the next. And tell the people who consume the data which days changed and why, because their reports from February just moved. The second concern is side effects. Some tasks exist to act on the original day: sending invoices, emailing finance, calling a partner. Replaying them a month later sends those effects again. The run type tells a task how its run was started, and a backfill run's type is backfill, so a short circuit task can skip sending on replays. Decide this per effect; occasionally a corrected figure must be resent. And remember that green backfill runs prove only that tasks ran. The reconciliation is what proves the repair. Next chapter: waiting and coordination."
+    },
+    {
+      "course": "assets",
+      "section": "sensors",
+      "file": "assets/sensors.wav",
+      "narration": "Chapter eight is about readiness: knowing when the data a task needs is actually there. The oldest tool for that is the sensor, a task that waits for a condition by checking it repeatedly, and succeeds when the condition becomes true. Our pipeline now needs the partner's refunds file, which lands in a shared bucket sometime after midnight. Wait for refunds checks for the day's file every five minutes. Three different time limits surround it, and they are easy to confuse. Poke interval is just the gap between checks. Timeout is the whole wait: if six hours pass without the file, the sensor fails, and it does not retry, because more retries would just be more waiting. Execution timeout limits a single attempt, as for any task, and that failure can be retried. Soft fail changes the outcome of a timeout from failed to skipped, which suits optional inputs. And one caution that runs through this chapter: a sensor proves that a file exists. It does not prove the file is complete, or correct, so a partner still writing it can pass the check. Next, what a waiting sensor costs."
+    },
+    {
+      "course": "assets",
+      "section": "poke-and-reschedule",
+      "file": "assets/poke-and-reschedule.wav",
+      "narration": "A sensor that is waiting is still a task, and the question is what it holds while it waits. That is decided by its mode. In poke mode, the sensor checks, then sleeps in place, keeping its worker slot the whole time. One sensor doing that for a few seconds costs nothing. Now picture one sensor per shop, forty of them, each waiting up to three hours for its file. In poke mode they hold forty worker slots all morning, mostly asleep, while the tasks that have real work to do sit in the queue. In reschedule mode, the sensor checks, and if the condition is not yet true, it releases its slot and asks to be scheduled again after the poke interval. Between checks it shows the up for reschedule state and holds nothing. The cost is that each check is a short new execution, with its own start-up time, so it suits waits of minutes to hours, checked every few minutes. And when waits are long and sensors are many, there is a better option still, which is to stop using workers for waiting at all. Next, deferral."
+    },
+    {
+      "course": "assets",
+      "section": "deferrable",
+      "file": "assets/deferrable.wav",
+      "narration": "Deferral takes waiting off the workers entirely. A deferrable operator, at the moment it would start waiting, hands the wait to a trigger: a small piece of asynchronous code that knows how to watch for one thing, such as a key appearing in a bucket or a Spark job finishing. That trigger runs in the triggerer, the component we met in chapter two, and the task is marked deferred, holding no worker slot at all. When the trigger fires, the scheduler puts the task back in line and it resumes on a worker to finish. For the refunds file, the change is one argument: deferrable equals true on the S3 key sensor. The timeout still applies to the whole wait. The economics are very different, because one triggerer process runs hundreds of triggers together in a single event loop. But deferral has its own requirements. The triggerer must be running and monitored, and its capacity setting decides how many triggers it will take. The operator must support deferral; not every one does. And if the triggerer is down, deferred tasks simply wait, until it returns or their timeout expires. Next, assets."
+    },
+    {
+      "course": "assets",
+      "section": "assets",
+      "file": "assets/assets.wav",
+      "narration": "Sensors wait by checking. Assets take a different approach: scheduling on data, rather than on time. An asset is a name for a piece of data, usually a URI, such as the location of the sales summary. A producer task declares the asset as an outlet. When that task succeeds, Airflow records an asset event: a note that the summary was updated. And a consumer DAG can use the asset as its schedule. Finance report is scheduled on the sales summary, so each asset event starts a finance report run, here at forty-one minutes past midnight, right after the summary was published, rather than at a clock time somebody guessed would be late enough. The producer does not need to know who its consumers are, which keeps teams decoupled. Two cautions, though. The URI is only a name: Airflow does not look at the data at that location, or even check that it exists. And an asset event means the producing task succeeded. It does not mean the data is complete or correct, which is why the quality gate from chapter six belongs before the task that emits the event. Next, waiting on more than one asset."
+    },
+    {
+      "course": "assets",
+      "section": "asset-conditions",
+      "file": "assets/asset-conditions.wav",
+      "narration": "Some consumers need more than one input. Daily margin needs both staged orders and staged refunds, so its schedule combines the two assets with an ampersand, meaning it runs once both have new events. A vertical bar means either. Now look at the events behind one daily margin run. Orders for the first of March were staged just after midnight. Then, at ten past nine, someone reran the twenty-sixth of February, which also updated staged orders. Refunds for the first arrived at eleven. Events that arrive before the consumer starts are batched, so this single run was triggered by all three. If daily margin simply assumes yesterday, it computes the first of March and ignores the repaired day. If it recomputes everything, it may combine refunds for one day with orders for another. The fix is to carry identity with the event. The producer attaches the day to the event's extra field, and the consumer reads its triggering events and handles each day it was given. Then, as always, it checks that both inputs for that day are actually complete before using them. Next, other ways to connect DAGs."
+    },
+    {
+      "course": "assets",
+      "section": "cross-dag",
+      "file": "assets/cross-dag.wav",
+      "narration": "Assets are one way for one DAG to depend on another. There are two older ones, and the difference between all three is direction, and how much each side must know. With an asset, the consumer listens: the producer simply declares what it updated and knows nothing about who uses it. With a trigger, the producer pushes. A TriggerDagRunOperator in daily orders starts a finance report run directly, and can pass configuration, such as the day. The producer now knows its consumer by name. With an external task sensor, the consumer polls: finance report waits for a particular task in daily orders to succeed, matching runs by logical date. That works as long as both DAGs' schedules line up, and breaks quietly when one of them changes timing, which is why it is the most fragile of the three. As a rule, prefer assets when the contract is that some data was updated. Use an explicit trigger when the producer owns the sequence and needs to pass values. And whichever you choose, pass the day explicitly rather than letting each side infer it. Next, events from outside Airflow."
+    },
+    {
+      "course": "assets",
+      "section": "event-driven",
+      "file": "assets/event-driven.wav",
+      "narration": "The last readiness tool lets events from outside Airflow start runs. In Airflow 3, an asset can be declared with a watcher. The watcher wraps a trigger, which runs in the triggerer and listens to an external source, such as a message queue. When a message arrives, say, a refund batch is ready, the watcher records an asset event, and that event schedules a consumer run exactly as a producer task's success would. Only triggers designed for this purpose can be used as watchers, so check which sources your providers support. It is important to be clear about the scope. Each event starts a whole DAG run, with scheduling, task start-up and metadata writes. That is entirely reasonable for a batch that arrives a few times a day, or a file per partner each hour. It is not reasonable for thousands of events a second, or for work that must answer each event in milliseconds. Those belong in a stream processor or a service. Airflow can coordinate the batch work around a stream, but it does not replace one. Next chapter: testing and evolving workflows."
+    },
+    {
+      "course": "testing",
+      "section": "separate-logic",
+      "file": "testing/separate-logic.wav",
+      "narration": "Chapter nine is about what you can know before a change reaches production. It starts with a design choice that makes testing cheap: keep business logic out of the DAG file. Most of what can go wrong inside a task has nothing to do with Airflow. Should refunds count towards sales? How are shops grouped? Those are ordinary Python questions, so put the answers in an ordinary Python module. Here, summarise lives in orders lib, takes rows and returns totals, and imports nothing from Airflow. The task, build summary, becomes a thin wrapper: it takes the run's interval, works out which file to read and where to write, and calls summarise in between. The task decides which data; the library decides what to compute. The payoff is large. The rule that refunds are excluded can be tested in milliseconds with plain pytest, with no scheduler, no metadata database and no DAG file involved. DAG-level tests can then concentrate on the things only Airflow can get wrong: wiring, context and dates. Next, testing the DAG files themselves."
+    },
+    {
+      "course": "testing",
+      "section": "dag-integrity",
+      "file": "testing/dag-integrity.wav",
+      "narration": "The cheapest useful test of DAG code does what the DAG processor does: it loads every file in the DAG folder and fails if any of them raise an import error. That alone catches syntax errors, missing packages and broken imports before they reach a deployment, where they would show up as an import error banner while the DAG kept running its previous version. Time the load as well. A file that takes seconds to import is doing work at the top level, which, as we saw in chapter two, it will repeat on every parse. Run this in CI against the same pinned dependencies as production, or it will pass on a laptop and fail on the server. A little more effort buys structure checks. Assert that the DAG ids you expect exist, and that settings the team relies on hold: catchup is off, the schedule is the interval timetable, every task has at least one retry. And assert the critical edges. Publish summary must wait for the quality gate; a test that says so catches the refactor that silently drops that dependency. Next, unit tests."
+    },
+    {
+      "course": "testing",
+      "section": "unit-tests",
+      "file": "testing/unit-tests.wav",
+      "narration": "Unit tests for pipeline code follow a simple discipline: fix the inputs, fake anything external, and check one behaviour at a time. No real clock, no network, no shared database. Build the input rows inside the test, and include the awkward cases deliberately, such as refunds and null values. Pass dates in explicitly; a test that reads today's date passes on some days and fails on others. Replace hooks and API clients with small fakes that record how they were called, and then assert on those calls: which file was listed, which partition was replaced, which day was used. Now look at the supplied results from a run of these tests before a fix. The refunds rule passes. The interval test fails: for the run of the first of March, extraction asked for the second of March. That is exactly the trigger-time versus data-interval confusion from chapter three, caught in a fraction of a second. And the idempotence test fails too: running the summary twice appended rows instead of replacing them. Each of these is far cheaper to find here than in a backfill. Next, running tasks locally."
+    },
+    {
+      "course": "testing",
+      "section": "local-execution",
+      "file": "testing/local-execution.wav",
+      "narration": "Between unit tests and a real deployment, Airflow can run parts of a DAG locally, in a single process, for a date you choose, and each command widens what is exercised. Airflow tasks render shows a task's templated fields exactly as they will be rendered for that date, which is the quickest way to check a SQL statement or a path. Airflow tasks test runs one task for one date, in the current process, so you can watch its logs and output. And airflow dags test, or calling dag dot test from Python, runs the whole DAG for a date in one process, task after task. Point all of these at local or test connections; a local test against production credentials is not a test. Then be clear about what a green local run does not show. Everything ran in one process, so nothing exercised parallel workers or the storage they share. Real credentials, permissions and network paths were not involved. Nothing competed for pools or concurrency. And no worker was lost mid-task, so the retry paths were never really taken. Those need integration cases. Next."
+    },
+    {
+      "course": "testing",
+      "section": "integration-cases",
+      "file": "testing/integration-cases.wav",
+      "narration": "Integration tests are where the promises of the earlier chapters get checked. They run the pipeline, or large parts of it, against real engines in a disposable environment, and each case states the evidence that passes it. Run the first of March twice, and the day must still have exactly forty rows. Kill the build task in the middle of a write, and after the retry the day must be correct and complete, with the live table untouched in between. Give it an empty shop list, and publish must still run and report zero shops, rather than being skipped silently. Feed it refunds that are eight percent off, and the gate must fail with yesterday's summary still live. Check that the producer's asset event carries the right day, and that a backfill run sends nothing to the partner. The environment matters as much as the cases. Create it for each test run and throw it away afterwards. Use the same database engine and SQL dialect as production; a different engine tests a different program. And replace the partner with a fake that records every call. Next, packaging the code."
+    },
+    {
+      "course": "testing",
+      "section": "packaging",
+      "file": "testing/packaging.wav",
+      "narration": "DAG code does not run in one place. The DAG processor imports it, workers execute it, and your tests load it too. If those places have different versions of Airflow, providers, Python or your own libraries, a DAG can parse in one and fail in another. So two habits. First, package shared code. Put orders lib in an installable package with its own project file, rather than copying helper modules between DAG folders. DAG files import it and contain only wiring. Version the package and install it into the image, so every component has the same build. Second, pin everything. Airflow publishes a constraints file for each release and Python version, listing versions known to work together; install against the one for your exact patch. Pin provider packages and your own dependencies as well. Build a single image that the scheduler, the DAG processor and the workers all use. And treat upgrades as changes like any other: change the pins, run the tests, then ship, rather than letting a fresh install pick up whatever was released last night. Next, getting changes to production."
+    },
+    {
+      "course": "testing",
+      "section": "promotion-and-versions",
+      "file": "testing/promotion-and-versions.wav",
+      "narration": "The last step is getting a change into production safely. A DAG change should go through review and CI, where the integrity, unit and integration tests run, then through a staging environment that uses the real engine with copied data, and only then into production, as a tagged release that someone watches after it lands. Airflow 3 adds something useful here. DAG code is read from DAG bundles, and the scheduler records which DAG version each run used. That matters when you deploy while a run is in progress. With a versioned bundle, such as one backed by Git, a run that is already going can finish on the code version it started with. With a plain local folder there is only one version, the files on disk, so the remaining tasks of that run pick up the new code halfway through. Either way, the UI shows which version of the graph each run had. But be careful not to read too much into that history. Recorded versions of the graph do not mean the old code is still available to run, unless the bundle keeps it. Next chapter: deployment."
+    },
+    {
+      "course": "deployment",
+      "section": "execution-models",
+      "file": "deployment/execution-models.wav",
+      "narration": "Chapter ten turns from pipelines to the deployment that runs them, and the first decision is an execution model, before any particular executor. There are three broad options. Everything on one machine, with tasks as local processes, is the simplest to run, but that machine's size is your entire capacity, and if it fails, everything stops. A fleet of long-lived workers starts tasks quickly and shares one environment between them; you scale by adding workers. A fresh container for each task gives every task its own isolated environment and its own resource request, at the cost of slower starts. Which fits depends on the workload, so state the workload first. A few light DAGs for one team run happily on one machine. Many short tasks under a steady load suit a worker fleet. Tasks of very different sizes, or tasks that need conflicting libraries, suit containers per task. And notice the tasks from earlier chapters that only submit a job and poll it: they are small in every model, because the heavy work happens elsewhere. Next, the executors that implement these models."
+    },
+    {
+      "course": "deployment",
+      "section": "executor-choice",
+      "file": "deployment/executor-choice.wav",
+      "narration": "The executor is the part of the scheduler that turns queued task instances into running processes, and each built-in executor takes on different work. The local executor starts tasks as subprocesses on the scheduler's own host. There is no extra infrastructure, and also no way to grow beyond that host. The Celery executor puts tasks on a message queue, and a fleet of workers that you run picks them up. You operate the broker and the workers, and you scale by adding workers. The Kubernetes executor asks a cluster for a new pod for each task instance. Every task is isolated and can request its own resources, but each one pays a start-up cost, and you need a cluster. You do not have to pick just one. Airflow can run several executors side by side, and a task can choose with the executor argument, so most tasks run on Celery workers while the heavy monthly build gets its own Kubernetes pod. Each executor you add is more infrastructure to operate and monitor, though. Make the default right for most tasks and route only the exceptions. Next, what all components must share."
+    },
+    {
+      "course": "deployment",
+      "section": "shared-infrastructure",
+      "file": "deployment/shared-infrastructure.wav",
+      "narration": "Airflow's components can run on separate machines, but to behave as one system they must share four foundations. The metadata database is the first. In production that means Postgres or MySQL; SQLite is only for local experiments. Every component depends on it, so it needs backups, monitoring and capacity like any important database. Remote logs are the second. Task logs should be written to shared storage, such as an object store, so the UI can show them after the worker that produced them is gone. The third is DAG distribution. Every component that reads DAG code must see the same code and version, which is what DAG bundles provide. And the fourth is a single image: the same pinned Airflow, providers and libraries in every component. When one of these drifts, the symptoms are confusing. A worker built from an older image fails a task that parsed perfectly. Logs written to a worker's local disk disappear when the worker is replaced. A struggling metadata database slows every component at once. Keep these four consistent first. Next, limiting concurrent work."
+    },
+    {
+      "course": "deployment",
+      "section": "pools-and-concurrency",
+      "file": "deployment/pools-and-concurrency.wav",
+      "narration": "Several limits apply to every task instance at the same time, and whichever is tightest decides whether it can start. Parallelism caps how many task instances run at once per scheduler. Max active tasks caps one DAG across all its runs, max active runs caps how many of its runs are active, and a per-task setting caps one task across runs. Those mostly protect Airflow and its workers. A pool is different: it protects something outside Airflow. Our warehouse can handle four heavy sessions at a time, so the warehouse pool has four slots, and any task, from any DAG, that touches the warehouse is assigned to it. A large task can take more than one slot; the monthly build takes two. Here the pool is full, so finance report waits in the queued state, even though there are idle workers. That is the pool doing its job. Note how the pool's size was chosen: from the warehouse's limit, not from how many workers you have. Adding workers does not add warehouse capacity, it only adds tasks waiting for it. Next, finding bottlenecks."
+    },
+    {
+      "course": "deployment",
+      "section": "throughput",
+      "file": "deployment/throughput.wav",
+      "narration": "When a deployment feels slow, the useful question is where the work is piling up. Work passes through four stages: parsing DAG files, scheduling, queueing for a worker, and the external systems that tasks call. Each has its own symptom. If edits to a DAG take minutes to appear, parsing is slow. If tasks sit in the scheduled state, something is holding them there: usually a pool or concurrency limit, and only occasionally the scheduler's own speed. If they sit in queued, there is not enough worker capacity. And if they start promptly but run slowly, the bottleneck is the warehouse or API they are calling. Then reach for the first lever that matches, which is rarely the most expensive one. Make top-level code cheaper before adding DAG processor capacity. Check pools and limits before scaling the scheduler. If the external system is the limit, a pool protects it, and adding workers only makes things worse, by sending more concurrent work at it. And remember chapter five: a mapped task with thousands of instances loads every stage at once, so batch it. Next, secrets."
+    },
+    {
+      "course": "deployment",
+      "section": "secrets",
+      "file": "deployment/secrets.wav",
+      "narration": "Chapter four said DAG code should name a connection id and never a password. Deployment decides where that password actually lives. In production, connections and sensitive values belong in a secrets backend, such as HashiCorp Vault or a cloud provider's secret manager, configured in Airflow's secrets section. When a task asks for a connection, Airflow checks the secrets backend first, then environment variables, then the metadata database. The second half of the job is least privilege. Do not create one all-powerful warehouse login. Give each job its own connection, with only the rights it needs. The quality gate only reads, so it uses a read-only connection. The build writes one table, so its connection can write that table and nothing else. The partner connection can post invoices and do nothing else. If one of them leaks, the damage is bounded. Rotation follows from this design. Because DAG code only names connection ids, rotating a credential is a change in the backend, with no DAG edit and no redeploy, as long as nobody has copied the secret into code along the way. Next, who can do what."
+    },
+    {
+      "course": "deployment",
+      "section": "access-and-trust",
+      "file": "deployment/access-and-trust.wav",
+      "narration": "Access control in Airflow has a boundary that is easy to misread. The auth manager, which is pluggable in Airflow 3, controls what users of the UI and the API may see and do: which DAGs they can view, whether they can trigger runs or clear tasks. That covers the first kind of user. The second kind is the DAG author, meaning anyone who can change the DAG files that a deployment reads. Their code is not limited by UI permissions at all. It runs on workers, with the worker's rights, so it can reach whatever the worker can reach, including connections that other DAGs use, and tasks from different DAGs may run on the same workers. That is why Airflow's security model treats DAG authors as trusted users. The third kind, the deployment admins, own the configuration, secrets, images and the metadata database. The practical consequences follow. Review DAG changes with the same care as production code, because they are production code. And if teams must not be able to affect each other at all, give them separate deployments, rather than relying on UI permissions inside one. Next, who runs Airflow itself."
+    },
+    {
+      "course": "deployment",
+      "section": "managed-or-self",
+      "file": "deployment/managed-or-self.wav",
+      "narration": "The last deployment decision is who runs Airflow itself. You can run it yourself, on your own servers or cluster, or use a managed service from a cloud provider or a vendor. The useful way to compare them is by ownership. A managed service takes over the servers, upgrades and security patches, and usually the backups and availability of the metadata database. In exchange, you get the versions, executors and settings the provider supports, rather than anything you like. What never moves, whichever you choose, is responsibility for your pipelines. Your DAG code, its correctness and its tests remain yours. So do your data, your secrets and the decisions about who may use them. And so do incidents: a managed service will keep the scheduler running, but it will not notice that refunds were dropped from the sales totals, or plan the backfill that repairs them. Weigh the choice on team time saved against service fees, and on control against convenience, and check practical fit: network access to your systems, your identity provider, and the regions you need. Next chapter: observability."
+    },
+    {
+      "course": "observability",
+      "section": "task-logs",
+      "file": "observability/task-logs.wav",
+      "narration": "Chapter eleven is about operating pipelines: knowing what is happening and diagnosing what went wrong. It starts with the most direct evidence there is, the task log. Airflow keeps a separate log for every attempt of every task instance, so the second attempt of build sales for the first of March has its own log, next to the first. Whether that log helps at three in the morning depends on what the task writes into it. Write the identity in: the run id and the day being processed, so a log line copied into a chat still says which run it came from. Write the external ids the task creates or finds, such as the Spark application id, the warehouse query id or the request key, because those are how you cross over to the other system's logs. And write what the task decided: here, that it found the existing job and attached to it, rather than submitting a new one. On the other side, keep secrets out. Airflow masks secret values it knows about, such as connection passwords, replacing them with asterisks. It cannot mask a secret it was never told about, so never log full connection strings or tokens. Next, where logs live."
+    },
+    {
+      "course": "observability",
+      "section": "remote-logs",
+      "file": "observability/remote-logs.wav",
+      "narration": "Logs have to live somewhere that outlasts the worker that wrote them. With remote logging, a worker writes the task's log while it runs and uploads it to shared storage, such as an object store, and the UI reads it back through the API server. When the UI says a log cannot be found, that is evidence too, and there are a handful of usual causes. The worker may have been killed, for example for running out of memory, before it could upload the log; the pod or host events will show it. The task may never have started at all, in which case its state history will show it going from queued to failed. Retention may have removed it, if a lifecycle rule on the bucket deletes old objects. One component may be configured with a different remote path from the others, which is why remote logging settings belong in the shared image and configuration. Or the API server may simply lack permission to read the bucket. Retention itself is a decision. Keep logs long enough to outlive an incident and its review, and not forever, because logs can contain data that has its own deletion rules. Next, health."
+    },
+    {
+      "course": "observability",
+      "section": "health-vs-progress",
+      "file": "observability/health-vs-progress.wav",
+      "narration": "Airflow exposes a health endpoint on its API server, and each component sends heartbeats. They are worth monitoring, but be precise about what they tell you. Here is the health response at seven in the morning on the fourth of March. The metadata database, the scheduler, the triggerer and the DAG processor are all healthy, with heartbeats from a few seconds ago. Meanwhile, the run for the third has been waiting since five past midnight, because a sensor is still checking for a partner file that never arrived. The sales summary's newest day is still the second. Every component is alive, and the business has not got its data. So separate three questions. Are the components alive? That is what heartbeats and the health endpoint answer. Is work moving through? That needs run and task states over time: a run that has been in the same state for seven hours is not progressing. And did the business get its data? Only the freshness of the output itself answers that. Monitor all three, but page people on the last one, because it is the one they actually care about. Next, metrics."
+    },
+    {
+      "course": "observability",
+      "section": "metrics",
+      "file": "observability/metrics.wav",
+      "narration": "Metrics fill the space between a single log and the health endpoint. Airflow emits them through StatsD or OpenTelemetry, and a handful answer most operational questions, as long as each one is tied to a question. Parse time and import errors tell you whether DAG edits are arriving intact and promptly; a jump in import errors right after a deploy is unmistakable. Schedule delay tells you how late runs start after they become due. Queued tasks and open slots in each pool tell you whether work is waiting, and on what: workers, or a pool protecting the warehouse. Run duration and task failure counts tell you whether the pipeline is slowly getting slower, or flakier, which is easy to miss day by day. When you alert on these, alert on shapes rather than points. A queue that is high for one minute is normal; high for twenty minutes is not. A duration creeping up for two weeks is a trend worth a look. And alert on absence: a DAG with no runs at all produces no failures, and no failure metrics. Exact metric names vary between versions, so check the list for yours. Next, freshness."
+    },
+    {
+      "course": "observability",
+      "section": "freshness-alerts",
+      "file": "observability/freshness-alerts.wav",
+      "narration": "The alert that matters most is not about Airflow at all. It is about the output: is it fresh, is it complete, and did it arrive by the time somebody agreed? So start by writing that promise down. Sales daily has yesterday's data by six in the morning UTC. Complete means a row for every active shop. And it has an owner: the team that is paged when the promise is broken, and the people who are told. Then check the promise from outside the pipeline. The query is simple: the newest day in the table, and how many shops it has. Run it from a separate monitor, on its own schedule. The reason it must be outside is the three failures in the lower panel. A run that never started fails no task, so nothing inside the pipeline raises an alert. A green run with wrong data passes every task. And if Airflow itself is down, it cannot alert on its own absence. A freshness check that queries the data catches all three. Airflow 3.1 introduces deadline alerts, but they are experimental, so verify them against your version before depending on them. Next, diagnosis."
+    },
+    {
+      "course": "observability",
+      "section": "diagnosis",
+      "file": "observability/diagnosis.wav",
+      "narration": "Most pipeline incidents start as one of four symptoms, and each has a first piece of evidence worth reading before anything else. No run for a day: check whether the DAG is paused, whether its file is failing to import, and whether the interval has actually closed yet under its timetable. Tasks stuck in queued: check that workers exist and are listening on the queue the task uses, and whether its pool has any open slots. A wait that never ends: read the sensor's log to see exactly what path or condition it is checking, because a wrong path waits forever, and if it is deferred, check that the triggerer is alive. And a task that fails every day: put the attempt logs side by side; the same permanent error being retried three times a day is common, and so is a change upstream on the day it started. Underneath those, a simple method works for almost everything. Locate the stage where work stopped, using states and the throughput symptoms from chapter ten. Compare a good day with a bad day. Then find what changed between them: a deploy, the data, or the configuration. Next, responding."
+    },
+    {
+      "course": "observability",
+      "section": "incident-response",
+      "file": "observability/incident-response.wav",
+      "narration": "To finish the chapter, put the pieces together into an incident. At six the freshness check fails: refunds are missing from the third of March. Triage comes first: what is affected, who owns it, and how far back the damage goes, using the interval list from chapter seven. Then contain it. Pause the finance report DAG, so the wrong figures do not flow on into the margin report. Pausing a DAG is almost always safe: it stops new runs and changes nothing that exists. Then repair, by clearing the affected tasks with a narrow scope that you have checked, which is only safe because those tasks are idempotent. Then verify, by reconciling the data against the source, because green task states after a repair prove only that tasks ran. Some interventions deserve more caution. Setting a pool to zero slots is a good way to protect an external system that is struggling. Marking a task as successful by hand is only acceptable when the data has been verified, since it tells every downstream task that the input is good. And editing tables directly should be rare, recorded and reviewed. Finally, write it up. Next chapter: the whole system."
+    },
+    {
+      "course": "integrated",
+      "section": "end-to-end",
+      "file": "integrated/end-to-end.wav",
+      "narration": "The last chapter steps back to look at the whole system. Here is the order pipeline as the course has built it. It waits for the partner's refunds, extracts the day's orders, stages them, builds the sales tables, checks them, and publishes the summary. The table beside it is the more important half, because each step carries a protection from an earlier chapter. The interval timetable gives every run a data interval, and every path and partition comes from that interval, never from the clock. The refunds wait is deferred, so it holds no worker, and it has a timeout, so it fails visibly. Extraction fans out per shop, bounded by a pool and by batching. Staging replaces exactly one day. The Spark build has a stable name, so a retry finds the job instead of starting another. The quality gate reconciles totals against the source and fails closed. And publication is an atomic swap that emits an asset event carrying the day. Even so, the design needs two things that live outside the DAG: a freshness check from outside the pipeline, owned by a person, and a recovery plan, tested before it is needed. Next, the engines it coordinates."
+    },
+    {
+      "course": "integrated",
+      "section": "coordinating-engines",
+      "file": "integrated/coordinating-engines.wav",
+      "narration": "In this pipeline, Airflow does not transform a single row itself. The heavy work runs in the warehouse, in dbt and on Spark, and Airflow coordinates them. The useful thing to notice is that the contract is the same with every engine. Airflow passes the run's identity in: the day and the run id, as query parameters, dbt variables or job arguments, never pasted into command text. And it gets something back: a status, a job or query id, and a few counts worth checking. A failure inside the engine should become a failed task, with the engine's own id in the task log, so a person can follow it across. In practice, warehouse SQL runs through the SQL execute query operator with bound parameters. dbt runs through a dbt build command, or one of the integrations that turn a dbt project into tasks, with the day passed as a variable. Spark runs through a provider operator for your platform, with a stable job name, as in chapter four. What stays out of this course is the inside of each engine: SQL design, dbt modelling and Spark tuning each have their own courses. Next, where to cut DAGs."
+    },
+    {
+      "course": "integrated",
+      "section": "dag-boundaries",
+      "file": "integrated/dag-boundaries.wav",
+      "narration": "As more teams come to depend on the pipeline, one DAG tends to become several, and the question is where to cut. Good boundaries follow ownership. Here, the data platform team owns ingestion, analytics engineering owns the daily sales build, and finance data owns the finance report: three DAGs, each with one owner who is paged when it breaks. Cadence is another natural boundary. If orders are ingested every hour but sales are built daily, those are different schedules, and one DAG would have to pretend otherwise. And when many consumers need the same output, publish it as an asset rather than having each consumer reach into the producer's tasks. The asset between teams needs a contract, though, because an asset event alone only says updated. Write down the owner who is paged on a breach. The grain, one row per day and shop, and the freshness promise, yesterday by six. The event's extra field, so consumers know which day an update covers. And how changes are handled: announced ahead of time, so the finance team is not the first to discover a new column. Next, planning for outages."
+    },
+    {
+      "course": "integrated",
+      "section": "outage-planning",
+      "file": "integrated/outage-planning.wav",
+      "narration": "Recovery plans are best written before the outage, and every one of them has a limit worth saying out loud. If the warehouse is down for six hours, tasks retry and then fail, and a backfill repairs the gap, but the backfill itself must be paced so that it does not swamp the warehouse the moment it returns. If a worker is lost in the middle of a Spark job, the next attempt can recover it, but only if the job has a stable name to look up. If raw input files have expired, no orchestration can help: a replay needs its inputs. The subtle one is restoring the metadata database. Suppose it is restored from a two o'clock backup after a failure at five. Airflow now has no record of anything that happened between two and five. Those runs are forgotten, the scheduler sees gaps, and work runs again. Idempotent tasks make that safe; anything that appends or sends will duplicate. Asset events from those hours are gone, so consumers that were waiting for them may never start. So after a restore, reconcile the outputs against the data itself, not against Airflow's states. Next, upgrades."
+    },
+    {
+      "course": "integrated",
+      "section": "upgrades",
+      "file": "integrated/upgrades.wav",
+      "narration": "Airflow versions move on, and so do providers, so plan upgrades as ordinary changes with a test path and a rollback plan. An upgrade changes more than code: the scheduler, the API, often the providers, and the schema of the metadata database. Start by reading the release notes and, for a major version, the migration guide, looking for breaking changes. Lint the DAG code: the ruff linter includes rules, prefixed AIR, that flag Airflow 2 imports and patterns that changed in Airflow 3. Upgrade staging first, ideally with a copy of production's metadata, so the database migration itself is tested on realistic data. Then run the integrity and integration tests from chapter nine against the new versions. Rollback deserves honesty. The image is easy: redeploy the old one. The metadata schema is not. Database migrations are not always reversible, so the reliable way back is to restore the backup taken just before running the migration. And anything that ran between the upgrade and the rollback then needs reconciling, exactly like the restore in the previous section. Next, the final question."
+    },
+    {
+      "course": "integrated",
+      "section": "when-airflow-fits",
+      "file": "integrated/when-airflow-fits.wav",
+      "narration": "The course ends with the question it began with: what is Airflow for? It fits bounded work, in runs that end, with real dependencies between steps and between systems, where history matters: retries, data intervals, backfills, and a record of what ran and when. Our order pipeline has all of those, which is why it fits. Other workloads fit other tools, and choosing them is not a failure. One script, once a night, with no dependencies, is well served by cron. Transformations that live entirely inside one warehouse may be best expressed in dbt, perhaps triggered by Airflow, perhaps not. Continuous events that need low latency belong in a stream processor, and a request that needs an answer now belongs in a service. So ask four questions. Is the work bounded? Are there real dependencies? Will you need to replay history by interval? And who will operate it, at what cost? From here, try the ideas on a different workload, compare its scheduling and side-effect contracts with this one, and check the current documentation, and your recovery evidence, before operating a real deployment."
+    }
+  ]
+}
