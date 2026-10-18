@@ -9,5 +9,6 @@
   "backfills": "Airflow Backfills and Recovery: Clear, Rerun and Reprocess Safely",
   "assets": "Airflow Sensors, Deferrable Operators and Asset Scheduling",
   "testing": "Testing Airflow DAGs: Unit, Integrity and Integration Tests",
-  "deployment": "Deploying Airflow: Executors, Pools, Secrets and Access Control"
+  "deployment": "Deploying Airflow: Executors, Pools, Secrets and Access Control",
+  "observability": "Monitoring Airflow: Logs, Metrics, Freshness and Incident Response"
 }
