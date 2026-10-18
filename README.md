@@ -26,9 +26,10 @@ Scaffolded from `schemabotview/content-repo-template`.
 npm install
 npm run dev          # http://localhost:5173 — routes are #/<course>-<section>
 npm run build && npx tsc --noEmit && npm run check
+npm run density      # rendered frames against the density targets (headless Chromium)
 ```
 
-All three are a floor, not proof: the rendered route is the real bar.
+All four are a floor, not proof: the rendered route is the real bar.
 
 ## Before the first deploy
 

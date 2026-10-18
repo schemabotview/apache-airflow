@@ -37,8 +37,19 @@ Routes are `#/<courseId>-<sectionId>`; `#/` is the catalog. Course ids, in sylla
 The recurring example is the daily retail-order pipeline (extract → validate → stage → transform →
 publish). Its nodes come from one shared factory so the same card looks the same in every course.
 
-**Scene inventory:** none yet. The template's `demo` course is still registered only because the
-shell's catalog throws on an empty registry; it is deleted when `first-dag` lands.
+**Scene inventory** (`src/scenes/`):
+
+| scene | course · section | shape |
+| --- | --- | --- |
+| `shared/pipeline.ts` | every course | the five pipeline task nodes (`extract`, `validate`, `stage`, `transform`, `publish`) |
+| `orders-dag` | first-dag · dependency-graphs | pipeline column beside a rejected cycle |
+| `orchestration-boundary` | first-dag · orchestration-boundaries | Airflow decides → other systems do → what green means |
+| `run-hierarchy` | first-dag · runs-and-attempts | definition → runs → task instances → attempts |
+| `first-taskflow` | first-dag · first-taskflow | the DAG file as a code card → graph + parse/run time |
+| `local-demo` | first-dag · local-demo | terminal card → demo assumptions → what it does not prove |
+| `reading-a-run` | first-dag · reading-a-run | grid table, attempt log, numbered retry side effect |
+
+The shell's catalog throws on an empty course registry, so a repo can never sit at zero courses.
 
 ## Invariants — do not break
 
@@ -100,17 +111,29 @@ Levers: **add real content, not padding**; **restack** a board toward the pane's
 scene `padding` to 0.04 for boards that float, **raise** it (0.12–0.17) for tall boards that touch
 the eyebrow.
 
-These are read off the rendered route by eye — `check` models no density at all. The two ratios come
-from one repo's ~80 frames of diagram-and-code-card boards, so a deliberately sparse board can sit
-under them. Targets, not thresholds.
+`npm run density` measures all four on the rendered routes (headless Chromium, 1920×1080,
+`?capture=1`; set `PUPPETEER_EXECUTABLE_PATH` if puppeteer's own browser was not downloaded). A board
+that is sparse on purpose carries `// density-accept: <reason>` in its section file. The two ratios
+come from one repo's ~80 frames of diagram-and-code-card boards. Targets, not thresholds.
+
+Calibration from the `first-dag` pilot: the `check` slide model **over**-estimates this repo's slides
+by 10–15 %. Slides modelling 942–993px rendered at 0.84–0.90 of the pane; ones modelling under ~900
+rendered under 0.80. So author to **940–995 modelled px**, then confirm with `density`.
+
+Engine behaviours the pilot hit (flow 1.3.0):
+- A container with `edges` **ignores `cols`** and stacks its children in one line. For a 2×2 of
+  steps, drop the edges and number the cards with `badge: '01'…`.
+- Two opposed edges between the same pair route the return edge **through both cards' labels**.
+  Use one edge with `bidirectional: true`.
+- `dir:` on a scene edge does not move its target; to stack two boards, nest them in one container.
 
 ## Guards before handing over
 
 ```sh
-npm run build && npx tsc --noEmit && npm run check
+npm run build && npx tsc --noEmit && npm run check && npm run density
 ```
 
-All three are a **floor, not proof** — they pass on frames that are visually wrong. The rendered
+All four are a **floor, not proof** — they pass on frames that are visually wrong. The rendered
 route is the real bar, and the owner reviews it.
 
 ## Working agreement

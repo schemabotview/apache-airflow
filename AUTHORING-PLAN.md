@@ -54,12 +54,14 @@ Every section follows the syllabus teaching method, compressed into one frame:
 `npm run check` only guards the *overflow* side. The density targets in `CLAUDE.md` guard the
 *empty* side and are checked on every section, in two layers.
 
-**Layer 1 — static, while writing.** The `check` slide model (`slideHeight`) on each slide, against
-the band **865–1000 modelled px**. Over 1000 fails `check`. Under 865 means add a real block (the
-failure contrast, a decision rule), not padding.
+**Layer 1 — static, while writing.** The `check` slide model (`slideHeight`) on each slide. Over
+1000 fails `check`. The pilot showed the model runs 10–15 % high for this repo, so the working band
+is **940–995 modelled px**; below that, add a real block (the failure contrast, a decision rule), not
+padding.
 
-**Layer 2 — rendered, before handover.** A headless-Chromium probe over every route at 1920×1080
-with `?capture=1`, measuring the DOM:
+**Layer 2 — rendered, before handover.** `npm run density [course…]` (`scripts/density.mjs`): a
+headless-Chromium probe over every route at 1920×1080 with `?capture=1`, measuring the DOM. Exits
+non-zero on any FAIL; `// density-accept: <reason>` in a section file reports it ACCEPTED instead.
 
 | metric | measured as | target |
 | --- | --- | --- |
@@ -68,7 +70,7 @@ with `?capture=1`, measuring the DOM:
 | scene area | node-union width × height ÷ pane area | ≥ 0.55 |
 | eyebrow clear | no `.react-flow__node` under `.reel-head` | true |
 
-A prototype probe already runs against this scaffold. On the template's demo sections it reports:
+Before the pilot, the template's own demo sections measured:
 
 ```
 FAIL demo-what-a-section-is  slide 0.61  bind 0.89  area 0.27  eyebrow clear
@@ -90,10 +92,17 @@ a screenshot of each route reviewed by eye (edge labels over cards are not measu
 
 ## 5. Order of work
 
-1. **Pilot — course 1 `first-dag` (6 sections).** Shared pipeline factory, six scenes, slides,
-   narration; delete the demo course in the same change. Run build/tsc/check + the density probe +
-   screenshots, and hand over the six routes. This calibrates the slide band and the scene kinds
-   before 78 more sections copy them.
+1. **Pilot — course 1 `first-dag` (6 sections). Done, awaiting review.** Shared pipeline nodes, six
+   scenes, slides, narration; demo course deleted. All six pass `density`:
+
+   ```
+   PASS  0.87  0.89  0.60  clear  first-dag-dependency-graphs
+   PASS  0.87  0.89  0.72  clear  first-dag-orchestration-boundaries
+   PASS  0.85  0.89  0.75  clear  first-dag-runs-and-attempts
+   PASS  0.85  0.89  0.73  clear  first-dag-first-taskflow
+   PASS  0.90  0.89  0.57  clear  first-dag-local-demo
+   PASS  0.84  0.89  0.71  clear  first-dag-reading-a-run
+   ```
 2. **Courses 2–12, one per change**, in syllabus order (each depends on the vocabulary of the last).
    Each lands with its scenes, slides, narration, `titles.json` entry, density report and route list.
 3. **Audio** — one Colab + Chatterbox pass per finished course; after that `check` requires every wav
@@ -105,6 +114,9 @@ a screenshot of each route reviewed by eye (edge labels over cards are not measu
 - **Brand**: `--brand #017cee` (Airflow logo blue), `--accent-2 #00c7d4` (teal). Swap if the GraphL
   catalog already uses blue for a neighbour.
 - **Course ids** in `CLAUDE.md` — they become public URLs, so they should be settled before the pilot.
-- **Commit the density probe** as `scripts/density.mjs` / `npm run density` (it uses the `puppeteer`
-  already in devDependencies), or keep it as a local review tool.
 - **Airflow patch** to name on code cards (3.1.x family is fixed; a single patch is not yet verified).
+- **Verify against that patch before recording:** `extract_orders(ds=None)` picks the file from the
+  run's date. Airflow 3 allows runs with no logical date, and a manual trigger may create one, in
+  which case `ds` is absent and the path would read `None`. Chapter 3 is where that belongs; the
+  first-dag code should either survive it or the demo should trigger with a logical date. The log
+  lines in `reading-a-run` are illustrative (marked abridged), not copied from a 3.1 log.

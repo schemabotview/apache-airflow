@@ -1,12 +1,10 @@
-import { demo } from './demo'
+import { firstDag } from './first-dag'
 import type { Course, Section } from './types'
 
 // Course registry, in syllabus order (APACHE-AIRFLOW-COURSE-PLAN.md, one chapter = one course).
-// Courses are added here as each is authored. The template's `demo` course stays only until the
-// first Airflow course lands: the shell's catalog throws on an empty registry. Delete it then
-// (src/content/demo, src/scenes/demo, public/audio/demo, both registries, titles.json).
+// Courses are added here as each is authored.
 export const COURSES: Record<string, Course> = {
-  [demo.id]: demo,
+  [firstDag.id]: firstDag,
 }
 
 export type { Course, Section }
