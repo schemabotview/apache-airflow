@@ -7,5 +7,6 @@
   "dynamic-work": "Airflow Branching, Trigger Rules and Dynamic Task Mapping",
   "idempotency": "Idempotent Airflow Pipelines: Retries, Atomic Publishing, Quality Gates",
   "backfills": "Airflow Backfills and Recovery: Clear, Rerun and Reprocess Safely",
-  "assets": "Airflow Sensors, Deferrable Operators and Asset Scheduling"
+  "assets": "Airflow Sensors, Deferrable Operators and Asset Scheduling",
+  "testing": "Testing Airflow DAGs: Unit, Integrity and Integration Tests"
 }
