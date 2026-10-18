@@ -7,6 +7,7 @@ import { idempotency } from './idempotency'
 import { backfills } from './backfills'
 import { assetsCourse } from './assets'
 import { testing } from './testing'
+import { deployment } from './deployment'
 import type { Course, Section } from './types'
 
 // Course registry, in syllabus order (APACHE-AIRFLOW-COURSE-PLAN.md, one chapter = one course).
@@ -21,6 +22,7 @@ export const COURSES: Record<string, Course> = {
   [backfills.id]: backfills,
   [assetsCourse.id]: assetsCourse,
   [testing.id]: testing,
+  [deployment.id]: deployment,
 }
 
 export type { Course, Section }
