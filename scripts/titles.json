@@ -6,5 +6,6 @@
   "task-design": "Airflow Task Design: XCom, Connections, Templates and External Jobs",
   "dynamic-work": "Airflow Branching, Trigger Rules and Dynamic Task Mapping",
   "idempotency": "Idempotent Airflow Pipelines: Retries, Atomic Publishing, Quality Gates",
-  "backfills": "Airflow Backfills and Recovery: Clear, Rerun and Reprocess Safely"
+  "backfills": "Airflow Backfills and Recovery: Clear, Rerun and Reprocess Safely",
+  "assets": "Airflow Sensors, Deferrable Operators and Asset Scheduling"
 }

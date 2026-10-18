@@ -5,6 +5,7 @@ import { taskDesign } from './task-design'
 import { dynamicWork } from './dynamic-work'
 import { idempotency } from './idempotency'
 import { backfills } from './backfills'
+import { assetsCourse } from './assets'
 import type { Course, Section } from './types'
 
 // Course registry, in syllabus order (APACHE-AIRFLOW-COURSE-PLAN.md, one chapter = one course).
@@ -17,6 +18,7 @@ export const COURSES: Record<string, Course> = {
   [dynamicWork.id]: dynamicWork,
   [idempotency.id]: idempotency,
   [backfills.id]: backfills,
+  [assetsCourse.id]: assetsCourse,
 }
 
 export type { Course, Section }
